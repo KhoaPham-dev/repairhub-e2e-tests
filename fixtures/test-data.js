@@ -10,8 +10,18 @@ const { v4: uuidv4 } = require('crypto');
 // Unique-per-run suffix to avoid DB conflicts when tests run repeatedly
 const RUN_ID = Date.now().toString().slice(-6);
 
+// Monotonic counter — guarantees unique phone numbers even when uid()'s
+// random suffix contains no digits (which would otherwise cause collisions
+// after padEnd fills with the same character).
+let _seq = 0;
+
 function uid() {
   return `${RUN_ID}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function uniquePhone(prefix) {
+  const seq = String(++_seq).padStart(4, '0');
+  return `${prefix}${RUN_ID.slice(0, 3)}${seq}`;
 }
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
@@ -22,7 +32,7 @@ const TECH_CREDS = { username: 'technician', password: 'tech123' };
 function makeCustomer(overrides = {}) {
   const id = uid();
   return {
-    phone: `090${id.replace(/[^0-9]/g, '').slice(0, 7).padEnd(7, '1')}`,
+    phone: uniquePhone('090'),
     name: `Nguyễn Văn Bình ${id}`,
     address: `${id} Đường Lê Lợi, Quận 1, TP.HCM`,
     type: 'RETAIL',
@@ -34,7 +44,7 @@ function makeCustomer(overrides = {}) {
 function makePartnerCustomer(overrides = {}) {
   const id = uid();
   return {
-    phone: `087${id.replace(/[^0-9]/g, '').slice(0, 7).padEnd(7, '2')}`,
+    phone: uniquePhone('087'),
     name: `Công ty TNHH Điện Tử Phương Nam ${id}`,
     address: `${id} Đường Nguyễn Thị Minh Khai, Quận 3, TP.HCM`,
     type: 'PARTNER',
@@ -49,7 +59,7 @@ function makeBranch(overrides = {}) {
   return {
     name: `Chi nhánh Quận ${id}`,
     address: `${id} Đường Trần Hưng Đạo, TP.HCM`,
-    phone: `028${id.replace(/[^0-9]/g, '').slice(0, 7).padEnd(7, '0')}`,
+    phone: uniquePhone('028'),
     manager_name: `Trần Thị Hoa ${id}`,
     ...overrides,
   };
