@@ -78,10 +78,10 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
     // There must be no <select> element on this page
     await expect(page.locator('select')).toHaveCount(0);
     // The branch section heading is an h2 inside a white card
-    const branchHeading = page.getByRole('heading', { name: 'Chi nhánh' });
+    const branchHeading = page.getByRole('heading', { name: 'Nơi nhập hàng' });
     await expect(branchHeading).toBeVisible({ timeout: 10_000 });
     // The branch section card contains at least one button after branches load
-    const branchCard = page.locator('div.bg-white').filter({ hasText: 'Chi nhánh' }).first();
+    const branchCard = page.locator('div.rounded-3xl').filter({ hasText: 'Nơi nhập hàng' }).first();
     const branchButtons = branchCard.locator('button');
     await expect(branchButtons.first()).toBeVisible({ timeout: 8_000 });
     const count = await branchButtons.count();
@@ -92,9 +92,9 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
   test('TC-03: clicking a branch button applies selected styling', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders/new');
-    const branchHeading = page.getByRole('heading', { name: 'Chi nhánh' });
+    const branchHeading = page.getByRole('heading', { name: 'Nơi nhập hàng' });
     await expect(branchHeading).toBeVisible({ timeout: 10_000 });
-    const branchCard = page.locator('div.bg-white').filter({ hasText: 'Chi nhánh' }).first();
+    const branchCard = page.locator('div.rounded-3xl').filter({ hasText: 'Nơi nhập hàng' }).first();
     const firstBtn = branchCard.locator('button').first();
     await firstBtn.waitFor({ state: 'visible', timeout: 8_000 });
     await firstBtn.click();
@@ -107,8 +107,8 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
   test('TC-04: product type section shows Loa, Tai nghe, and Bảo Hành buttons', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders/new');
-    // The product card uses heading "Thiết bị"
-    await expect(page.getByRole('heading', { name: 'Thiết bị' })).toBeVisible({ timeout: 10_000 });
+    // The product card uses heading "Sản phẩm"
+    await expect(page.getByRole('heading', { name: 'Sản phẩm' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('button', { name: 'Loa' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Tai nghe' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Bảo Hành' })).toBeVisible();
@@ -146,34 +146,34 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
   test('TC-07: "Thêm thiết bị" button adds a second product row', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders/new');
-    // Wait for the page to load — single row shows heading "Thiết bị" (no number)
-    await expect(page.getByRole('heading', { name: 'Thiết bị' })).toBeVisible({ timeout: 10_000 });
+    // Wait for the page to load — single row shows heading "Sản phẩm" (no number)
+    await expect(page.getByRole('heading', { name: 'Sản phẩm' })).toBeVisible({ timeout: 10_000 });
     // Numbered headings should not exist yet
-    await expect(page.getByRole('heading', { name: 'Thiết bị 1' })).toHaveCount(0);
-    // Click "Thêm thiết bị"
-    await page.getByRole('button', { name: '+ Thêm thiết bị' }).click();
+    await expect(page.getByRole('heading', { name: 'Sản phẩm 1' })).toHaveCount(0);
+    // Click "Thêm sản phẩm"
+    await page.getByRole('button', { name: 'Thêm sản phẩm' }).click();
     // Two rows should now appear, each with numbered heading
-    await expect(page.getByRole('heading', { name: 'Thiết bị 1' })).toBeVisible({ timeout: 4_000 });
-    await expect(page.getByRole('heading', { name: 'Thiết bị 2' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sản phẩm 1' })).toBeVisible({ timeout: 4_000 });
+    await expect(page.getByRole('heading', { name: 'Sản phẩm 2' })).toBeVisible();
   });
 
   // TC-08: Removing a product row reduces count back to 1
   test('TC-08: removing a product row reduces row count to 1', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders/new');
-    await expect(page.getByRole('button', { name: '+ Thêm thiết bị' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Thêm sản phẩm' })).toBeVisible({ timeout: 10_000 });
     // Add a second product
-    await page.getByRole('button', { name: '+ Thêm thiết bị' }).click();
-    await expect(page.getByRole('heading', { name: 'Thiết bị 2' })).toBeVisible({ timeout: 4_000 });
+    await page.getByRole('button', { name: 'Thêm sản phẩm' }).click();
+    await expect(page.getByRole('heading', { name: 'Sản phẩm 2' })).toBeVisible({ timeout: 4_000 });
     // "Xoá" buttons appear when count > 1
     const xoaButtons = page.getByRole('button', { name: 'Xoá' });
     await expect(xoaButtons.first()).toBeVisible();
     await xoaButtons.first().click();
     // Back to 1 row — numbered headings should disappear
-    await expect(page.getByRole('heading', { name: 'Thiết bị 2' })).toHaveCount(0, { timeout: 4_000 });
-    await expect(page.getByRole('heading', { name: 'Thiết bị 1' })).toHaveCount(0);
-    // Single-row header is plain "Thiết bị"
-    await expect(page.getByRole('heading', { name: 'Thiết bị' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sản phẩm 2' })).toHaveCount(0, { timeout: 4_000 });
+    await expect(page.getByRole('heading', { name: 'Sản phẩm 1' })).toHaveCount(0);
+    // Single-row header is plain "Sản phẩm"
+    await expect(page.getByRole('heading', { name: 'Sản phẩm' })).toBeVisible();
   });
 
   // TC-09: Selecting "Bảo Hành" product type shows warranty search sub-form
@@ -214,9 +214,9 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
     await expect(page.locator('.bg-blue-50')).toBeVisible({ timeout: 4_000 });
 
     // Wait for branches to load then select the first one
-    const branchHeading = page.getByRole('heading', { name: 'Chi nhánh' });
+    const branchHeading = page.getByRole('heading', { name: 'Nơi nhập hàng' });
     await expect(branchHeading).toBeVisible({ timeout: 8_000 });
-    const branchCard = page.locator('div.bg-white').filter({ hasText: 'Chi nhánh' }).first();
+    const branchCard = page.locator('div.rounded-3xl').filter({ hasText: 'Nơi nhập hàng' }).first();
     const firstBranch = branchCard.locator('button').first();
     await firstBranch.waitFor({ state: 'visible', timeout: 8_000 });
     await firstBranch.click();
