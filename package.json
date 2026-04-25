@@ -4,6 +4,7 @@
   "description": "E2E API test suite for RepairHub Phase 1",
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit",
+    "test:e2e": "playwright test",
     "test:auth": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/01-auth.test.js",
     "test:branches": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/02-branches.test.js",
     "test:customers": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/03-customers.test.js",
@@ -17,6 +18,7 @@
     "node-fetch": "^2.7.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "jest": "^29.7.0"
   },
   "jest": {
