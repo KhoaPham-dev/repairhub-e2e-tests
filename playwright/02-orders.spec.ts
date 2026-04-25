@@ -15,23 +15,14 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
+import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = 'http://localhost:3001/api';
-const ADMIN = { username: 'admin', password: 'admin123' };
-
-/** Authenticate via UI and return the page ready at the dashboard. */
-async function loginViaUI(page: Page) {
-  await page.goto('/login');
-  await page.getByPlaceholder('Nhập tên đăng nhập').fill(ADMIN.username);
-  await page.getByPlaceholder('Nhập mật khẩu').fill(ADMIN.password);
-  await page.getByRole('button', { name: /Đăng nhập/i }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 });
-}
+const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
 
 /** Use the backend API to obtain a JWT token. */
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {
   const res = await request.post(`${API_BASE}/auth/login`, {
-    data: ADMIN,
+    data: { username: ADMIN_USER, password: ADMIN_PASSWORD },
   });
   const body = await res.json();
   return body.data.token as string;

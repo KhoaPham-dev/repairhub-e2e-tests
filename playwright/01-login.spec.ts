@@ -13,20 +13,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-
-const ADMIN = { username: 'admin', password: 'admin123' };
-
-/**
- * Helper: log in through the UI and land on the dashboard.
- */
-async function loginViaUI(page: import('@playwright/test').Page) {
-  await page.goto('/login');
-  await page.getByPlaceholder('Nhập tên đăng nhập').fill(ADMIN.username);
-  await page.getByPlaceholder('Nhập mật khẩu').fill(ADMIN.password);
-  await page.getByRole('button', { name: /Đăng nhập/i }).click();
-  // Wait for redirect away from /login
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 });
-}
+import { loginViaUI, ADMIN_USER } from './helpers/auth';
 
 test.describe('PW-01 Login / Logout', () => {
   test('login page renders form elements', async ({ page }) => {
@@ -69,7 +56,7 @@ test.describe('PW-01 Login / Logout', () => {
 
   test('invalid password shows error message and stays on /login', async ({ page }) => {
     await page.goto('/login');
-    await page.getByPlaceholder('Nhập tên đăng nhập').fill('admin');
+    await page.getByPlaceholder('Nhập tên đăng nhập').fill(ADMIN_USER);
     await page.getByPlaceholder('Nhập mật khẩu').fill('wrongpassword');
     await page.getByRole('button', { name: /Đăng nhập/i }).click();
     // Error message should appear; URL must remain /login

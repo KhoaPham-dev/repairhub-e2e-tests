@@ -1,3 +1,5 @@
 node_modules/
 package-lock.json
 .env
+# Allow the Playwright test .env — seeded dev credentials, not production secrets
+!playwright/.env
