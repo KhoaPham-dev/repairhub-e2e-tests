@@ -282,14 +282,14 @@ describe('TC-04b Image Upload', () => {
     imageOrderId = body.data.id;
   });
 
-  test('Upload INTAKE image to order returns 200 and image record', async () => {
+  test('Upload INTAKE image to order returns 201 and image record', async () => {
     const form = buildImageFormData('INTAKE');
     const { status, body } = await api.post(`/orders/${imageOrderId}/images`, {
       token: techToken,
       formData: form,
     });
 
-    expect(status).toBe(200);
+    expect(status).toBe(201);
     expect(body.success).toBe(true);
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.data.length).toBeGreaterThan(0);
@@ -297,14 +297,14 @@ describe('TC-04b Image Upload', () => {
     expect(typeof body.data[0].image_path).toBe('string');
   });
 
-  test('Upload COMPLETION image to order returns 200', async () => {
+  test('Upload COMPLETION image to order returns 201', async () => {
     const form = buildImageFormData('COMPLETION');
     const { status, body } = await api.post(`/orders/${imageOrderId}/images`, {
       token: techToken,
       formData: form,
     });
 
-    expect(status).toBe(200);
+    expect(status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.data.some((img) => img.image_type === 'COMPLETION')).toBe(true);
   });
