@@ -168,7 +168,7 @@ test.describe('PW-04 Warranty Search', () => {
     await page.getByPlaceholder('Tìm theo SĐT, serial, tên thiết bị...').fill(customerPhone);
     await page.getByRole('button', { name: 'Tìm' }).click();
     await expect(page.getByText(new RegExp(`Tai nghe PW04-${runId}`))).toBeVisible({ timeout: 10_000 });
-    await page.getByText('Xem đơn hàng →').first().click();
+    await page.getByRole('button', { name: 'Xem đơn hàng' }).first().click();
     await page.waitForURL(new RegExp(`/orders/${orderId}`), { timeout: 8_000 });
     await expect(page.getByText(new RegExp(`Tai nghe PW04-${runId}`))).toBeVisible({ timeout: 5_000 });
   });

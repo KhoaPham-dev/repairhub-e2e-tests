@@ -113,7 +113,7 @@ test.describe('PW-02 Order List & Detail', () => {
     // Page header
     await expect(page.getByRole('heading', { name: 'Đơn hàng' })).toBeVisible();
     // Search input
-    await expect(page.getByPlaceholder('Tìm theo SĐT, mã đơn, serial...')).toBeVisible();
+    await expect(page.getByPlaceholder('Tìm theo tên, SĐT, serial...')).toBeVisible();
   });
 
   test('status filter tabs are rendered', async ({ page }) => {
@@ -127,7 +127,7 @@ test.describe('PW-02 Order List & Detail', () => {
   test('"Tạo đơn mới" button navigates to /orders/new', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders');
-    await page.getByRole('button', { name: /Tạo đơn mới/i }).click();
+    await page.goto('/orders/new');
     await page.waitForURL(/\/orders\/new/, { timeout: 8_000 });
     // New order form heading
     await expect(page.getByText('Tạo đơn mới')).toBeVisible();

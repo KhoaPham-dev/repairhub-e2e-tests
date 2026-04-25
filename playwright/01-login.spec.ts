@@ -35,8 +35,8 @@ test.describe('PW-01 Login / Logout', () => {
 
   test('dashboard shows authenticated content after login', async ({ page }) => {
     await loginViaUI(page);
-    // "Đơn đang xử lý" card is always present (count may be 0)
-    await expect(page.getByText('Đơn đang xử lý')).toBeVisible();
+    // "Đang xử lý" KPI card is always present (count may be 0)
+    await expect(page.getByText('Đang xử lý')).toBeVisible();
     // Greeting line contains "Xin chào"
     await expect(page.getByText(/Xin chào/i)).toBeVisible();
   });

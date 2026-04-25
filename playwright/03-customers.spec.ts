@@ -104,7 +104,7 @@ test.describe('PW-03 Customer Search', () => {
     await page.getByText(customerName).click();
     await page.waitForURL(new RegExp(`/customers/${customerId}`), { timeout: 8_000 });
     // Detail page shows the customer's name or phone
-    await expect(page.getByText(customerPhone)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(customerPhone).first()).toBeVisible({ timeout: 5_000 });
   });
 
   test('clearing search input shows all customers', async ({ page }) => {
