@@ -1,0 +1,27 @@
+{
+  "name": "repair-hub-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E API test suite for RepairHub Phase 1",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit",
+    "test:auth": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/01-auth.test.js",
+    "test:branches": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/02-branches.test.js",
+    "test:customers": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/03-customers.test.js",
+    "test:orders": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/04-orders.test.js",
+    "test:warranty": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/05-warranty.test.js",
+    "test:users": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/06-users-rbac.test.js",
+    "test:backup": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/07-backup.test.js"
+  },
+  "dependencies": {
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 30000,
+    "verbose": true
+  }
+}
