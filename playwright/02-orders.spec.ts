@@ -29,8 +29,8 @@ async function apiLogin(request: import('@playwright/test').APIRequestContext): 
 }
 
 /**
- * Seed a minimal customer + branch + order via the API so the list is
- * guaranteed non-empty when the UI test runs.
+ * Seed a minimal customer + order via the API so the list is
+ * guaranteed non-empty when the UI test runs. Uses an existing branch.
  * Returns { orderId, orderCode, customerId, branchId } for teardown.
  */
 async function seedOrder(token: string, request: import('@playwright/test').APIRequestContext) {
@@ -48,17 +48,12 @@ async function seedOrder(token: string, request: import('@playwright/test').APIR
   const cBody = await cRes.json();
   const customerId = cBody.data.id as string;
 
-  const bRes = await request.post(`${API_BASE}/branches`, {
+  // Use existing branch instead of creating one
+  const bRes = await request.get(`${API_BASE}/branches`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: {
-      name: `Chi nhánh PW-02 ${runId}`,
-      address: `${runId} Test Street`,
-      phone: `028${String(runId).slice(-7)}`,
-      manager_name: `Manager ${runId}`,
-    },
   });
   const bBody = await bRes.json();
-  const branchId = bBody.data.id as string;
+  const branchId = bBody.data[0].id as string;
 
   const oRes = await request.post(`${API_BASE}/orders`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -100,11 +95,7 @@ test.describe('PW-02 Order List & Detail', () => {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => null);
     }
-    if (branchId) {
-      await request.delete(`${API_BASE}/branches/${branchId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => null);
-    }
+    // branchId is an existing branch — do not delete it
   });
 
   test('order list page renders after login', async ({ page }) => {

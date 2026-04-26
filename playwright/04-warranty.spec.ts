@@ -78,17 +78,11 @@ test.describe('PW-04 Warranty Search', () => {
     });
     customerId = (await cRes.json()).data.id;
 
-    // Create branch
-    const bRes = await request.post(`${API_BASE}/branches`, {
+    // Use existing branch instead of creating one
+    const bRes = await request.get(`${API_BASE}/branches`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: {
-        name: `Chi nhánh PW-04 ${runId}`,
-        address: `${runId} PW04 Road`,
-        phone: `028${String(runId).slice(-7)}`,
-        manager_name: `Manager PW04 ${runId}`,
-      },
     });
-    branchId = (await bRes.json()).data.id;
+    branchId = (await bRes.json()).data[0].id;
 
     // Create order
     const oRes = await request.post(`${API_BASE}/orders`, {
@@ -115,11 +109,7 @@ test.describe('PW-04 Warranty Search', () => {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => null);
     }
-    if (branchId) {
-      await request.delete(`${API_BASE}/branches/${branchId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => null);
-    }
+    // branchId is an existing branch — do not delete it
   });
 
   test('warranty page renders search input and button', async ({ page }) => {
