@@ -48,8 +48,10 @@ test.describe('PW-01 Login / Logout', () => {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
     });
-    // Navigate to a protected page — AuthGuard should redirect to /login
-    await page.goto('/orders');
+    // Navigate to a protected page — AuthGuard should redirect to /login.
+    // Use waitUntil:'commit' to tolerate the Next.js client-side redirect that
+    // can cause net::ERR_ABORTED when navigating to a guarded route without a token.
+    await page.goto('/orders', { waitUntil: 'commit' }).catch(() => null);
     await page.waitForURL(/\/login/, { timeout: 8_000 });
     await expect(page.getByPlaceholder('Nhập tên đăng nhập')).toBeVisible();
   });
