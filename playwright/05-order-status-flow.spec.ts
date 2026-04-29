@@ -140,8 +140,9 @@ test.describe('TC-01: Flow 1 — status progression (RH-30 AC-1)', () => {
     const select = page.locator('select');
     await expect(select).toBeVisible({ timeout: 10_000 });
 
+    // App filters out the current status (TIEP_NHAN / Tiếp nhận) from the dropdown,
+    // so we verify the remaining Flow-1 statuses are present.
     const flow1Labels = [
-      'Tiếp nhận',
       'Kiểm tra',
       'Báo giá',
       'Đang sửa',
@@ -152,6 +153,8 @@ test.describe('TC-01: Flow 1 — status progression (RH-30 AC-1)', () => {
     for (const label of flow1Labels) {
       await expect(select.locator(`option:has-text("${label}")`)).toHaveCount(1);
     }
+    // Current status must NOT appear as a selectable option
+    await expect(select.locator('option:has-text("Tiếp nhận")')).toHaveCount(0);
   });
 
   test('status badge updates after transitioning TIEP_NHAN → DANG_KIEM_TRA', async ({ page }) => {
@@ -282,14 +285,19 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Set up dialog handler to ACCEPT
-    page.once('dialog', (dialog) => dialog.accept());
+    // Mock window.confirm to return true (accept) so dialog doesn't block the click.
+    // page.once('dialog', accept) is unreliable: Playwright may auto-dismiss the dialog
+    // before the async dialog.accept() CDP command resolves.
+    await page.evaluate(() => { (window as any).confirm = () => true; });
 
     await page.locator('select').selectOption({ label: 'Huỷ trả máy' });
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
 
-    await expect(page.getByText('Cập nhật thành công')).toBeVisible({ timeout: 10_000 });
+    // HUY_TRA_MAY is a terminal status — the editable section (including the success
+    // toast) is hidden immediately after load() re-fetches the order. Assert the
+    // stable post-transition indicators instead: badge text and dropdown absence.
     await expect(badge).toContainText('Huỷ trả máy', { timeout: 10_000 });
+    await expect(page.locator('select')).toHaveCount(0);
   });
 });
 
@@ -301,7 +309,9 @@ test.describe('TC-04: phone number renders as tel: link (RH-30 AC-4)', () => {
   let token: string;
   let orderId: string;
   let customerId: string;
-  const validPhone = '0901234567';
+  // Use a unique phone based on run timestamp so parallel/repeated runs don't conflict.
+  // Must match the frontend tel: regex ^[0-9+() \-]+$ and the backend phone sanitiser.
+  const validPhone = `090${String(Date.now()).slice(-7)}`;
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
