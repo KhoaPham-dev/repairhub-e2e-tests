@@ -129,12 +129,12 @@ test.describe('PW-02 Order List & Detail', () => {
     await page.goto('/orders/new');
     // Customer phone input
     await expect(page.getByPlaceholder('Số điện thoại *')).toBeVisible();
+    // Customer name input (shown when no customer selected)
+    await expect(page.getByPlaceholder('Tên khách hàng *')).toBeVisible();
     // Device name
     await expect(page.getByPlaceholder('Tên thiết bị *')).toBeVisible();
     // Fault description
     await expect(page.getByPlaceholder('Mô tả lỗi *')).toBeVisible();
-    // Quotation
-    await expect(page.getByPlaceholder('Báo giá (VNĐ) *')).toBeVisible();
     // Submit button
     await expect(page.getByRole('button', { name: /Tạo đơn hàng/i })).toBeVisible();
   });
@@ -163,5 +163,56 @@ test.describe('PW-02 Order List & Detail', () => {
     await expect(page.getByText(/Loa JBL PW02/)).toBeVisible({ timeout: 8_000 });
     // Initial status is always "Tiếp nhận" — shown in the status badge
     await expect(page.locator('span').filter({ hasText: 'Tiếp nhận' }).first()).toBeVisible();
+  });
+});
+
+test.describe('PW-02 Order List — Filters & Search', () => {
+  let token: string;
+  let orderId: string;
+  let orderCode: string;
+  let customerId: string;
+
+  test.beforeAll(async ({ request }) => {
+    token = await apiLogin(request);
+    ({ orderId, orderCode, customerId } = await seedOrder(token, request));
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (customerId) {
+      await request.delete(`${API_BASE}/customers/${customerId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => null);
+    }
+  });
+
+  test('status filter "Tiếp nhận" shows seeded order and tab is active', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/orders');
+
+    // Click the "Tiếp nhận" status filter tab
+    const tiepNhanBtn = page.getByRole('button', { name: 'Tiếp nhận' });
+    await expect(tiepNhanBtn).toBeVisible({ timeout: 8_000 });
+    await tiepNhanBtn.click();
+
+    // The active tab on the orders page gets bg-white shadow-sm styling
+    // (this filter row uses its own pill styling, not SegmentedControl's bg-[#004EAB])
+    await expect(tiepNhanBtn).toHaveClass(/bg-white/, { timeout: 4_000 });
+    await expect(tiepNhanBtn).toHaveClass(/shadow-sm/);
+
+    // Seeded order has status TIEP_NHAN — it should appear in the filtered list
+    await expect(page.getByText(orderCode)).toBeVisible({ timeout: 8_000 });
+  });
+
+  test('search by order code finds the seeded order', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/orders');
+
+    // Fill the search input with the seeded order code
+    const searchInput = page.getByPlaceholder('Tìm theo tên, SĐT, serial...');
+    await expect(searchInput).toBeVisible({ timeout: 8_000 });
+    await searchInput.fill(orderCode);
+
+    // Seeded order code should appear in results
+    await expect(page.getByText(orderCode)).toBeVisible({ timeout: 8_000 });
   });
 });
