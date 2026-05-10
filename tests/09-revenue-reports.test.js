@@ -8,11 +8,15 @@
  *          Path traversal protection on download endpoint
  *   RH-88  Generated report has status "done" after POST /generate
  *          Report appears in GET /api/reports list after generation
+ *   RH-87  Excel workbook has exactly 2 sheets with correct names and headers
+ *          (feat/rh-87-report-detail-sheet — "Chi tiết đơn hàng" sheet added)
  *
  *   RH-89 (Scheduler) — marked MANUAL; cannot trigger node-cron in E2E environment.
  */
 
-const { api, login } = require('../helpers/api');
+const fetch = require('node-fetch');
+const XLSX = require('xlsx');
+const { api, login, BASE_URL } = require('../helpers/api');
 const { ADMIN_CREDS, TECH_CREDS } = require('../fixtures/test-data');
 
 let adminToken;
@@ -297,6 +301,139 @@ describe('TC-09c GET /reports/:id/download — download', () => {
 
     // Non-UUID → 404, never reaches DB or file system
     expect(status).toBe(404);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RH-87: Excel workbook sheet structure — feat/rh-87-report-detail-sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('TC-09e RH-87 Excel workbook — two sheets with correct structure', () => {
+  let reportId;
+  let xlsxBuffer;
+
+  const EXPECTED_SHEET_NAMES = ['Báo cáo doanh thu', 'Chi tiết đơn hàng'];
+  const EXPECTED_DETAIL_HEADERS = [
+    'Mã đơn', 'Trạng thái', 'Ghi chú', 'Ngày tạo',
+    'Khách hàng', 'Loại khách', 'Số điện thoại', 'Thiết bị', 'Báo giá',
+  ];
+
+  beforeAll(async () => {
+    // Generate a fresh report specifically for sheet-structure inspection
+    const { status, body } = await api.post('/reports/generate', {
+      token: adminToken,
+      body: { period_start: '2026-04-01', period_end: '2026-04-15' },
+    });
+
+    if (status === 201 && body.data?.id) {
+      reportId = body.data.id;
+
+      // Download the xlsx binary
+      const response = await fetch(
+        `${BASE_URL}/reports/${reportId}/download`,
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      );
+
+      if (response.status === 200) {
+        xlsxBuffer = await response.buffer();
+      }
+    }
+  });
+
+  test('POST /reports/generate returns 201 — report generated successfully', async () => {
+    expect(reportId).toBeTruthy();
+  });
+
+  test('GET /reports/:id/download returns 200 with xlsx content-type', async () => {
+    if (!reportId) {
+      console.warn('Skipping: reportId not set — generation failed');
+      return;
+    }
+
+    const response = await fetch(
+      `${BASE_URL}/reports/${reportId}/download`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+
+    expect(response.status).toBe(200);
+
+    const contentType = response.headers.get('content-type') || '';
+    expect(contentType).toContain(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+  });
+
+  test('Downloaded binary is a valid xlsx (ZIP magic bytes PK)', async () => {
+    if (!xlsxBuffer) {
+      console.warn('Skipping: xlsx buffer not available');
+      return;
+    }
+
+    expect(xlsxBuffer[0]).toBe(0x50); // P
+    expect(xlsxBuffer[1]).toBe(0x4b); // K
+  });
+
+  test('Workbook has exactly 2 sheets', async () => {
+    if (!xlsxBuffer) {
+      console.warn('Skipping: xlsx buffer not available');
+      return;
+    }
+
+    const wb = XLSX.read(xlsxBuffer, { type: 'buffer' });
+    expect(wb.SheetNames).toHaveLength(2);
+  });
+
+  test('Sheet 1 is named "Báo cáo doanh thu"', async () => {
+    if (!xlsxBuffer) {
+      console.warn('Skipping: xlsx buffer not available');
+      return;
+    }
+
+    const wb = XLSX.read(xlsxBuffer, { type: 'buffer' });
+    expect(wb.SheetNames[0]).toBe('Báo cáo doanh thu');
+  });
+
+  test('Sheet 2 is named "Chi tiết đơn hàng"', async () => {
+    if (!xlsxBuffer) {
+      console.warn('Skipping: xlsx buffer not available');
+      return;
+    }
+
+    const wb = XLSX.read(xlsxBuffer, { type: 'buffer' });
+    expect(wb.SheetNames[1]).toBe('Chi tiết đơn hàng');
+  });
+
+  test('"Chi tiết đơn hàng" row 1 has the 9 correct column headers', async () => {
+    if (!xlsxBuffer) {
+      console.warn('Skipping: xlsx buffer not available');
+      return;
+    }
+
+    const wb = XLSX.read(xlsxBuffer, { type: 'buffer' });
+    const ws = wb.Sheets['Chi tiết đơn hàng'];
+    expect(ws).toBeDefined();
+
+    // Read row 1 as an array of values (header_only mode via sheet_to_json with header: 1)
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+
+    const headerRow = rows[0];
+    expect(headerRow).toEqual(EXPECTED_DETAIL_HEADERS);
+  });
+
+  test('"Báo cáo doanh thu" sheet 1 is present and non-empty', async () => {
+    if (!xlsxBuffer) {
+      console.warn('Skipping: xlsx buffer not available');
+      return;
+    }
+
+    const wb = XLSX.read(xlsxBuffer, { type: 'buffer' });
+    const ws = wb.Sheets['Báo cáo doanh thu'];
+    expect(ws).toBeDefined();
+
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    // Expect at least: period header row, empty row, column header row, totals row
+    expect(rows.length).toBeGreaterThanOrEqual(4);
   });
 });
 
