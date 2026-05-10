@@ -45,6 +45,7 @@ const api = {
   get: (endpoint, opts) => request('GET', endpoint, opts),
   post: (endpoint, opts) => request('POST', endpoint, opts),
   put: (endpoint, opts) => request('PUT', endpoint, opts),
+  patch: (endpoint, opts) => request('PATCH', endpoint, opts),
   delete: (endpoint, opts) => request('DELETE', endpoint, opts),
 };
 

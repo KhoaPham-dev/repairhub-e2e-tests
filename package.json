@@ -11,7 +11,8 @@
     "test:orders": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/04-orders.test.js",
     "test:warranty": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/05-warranty.test.js",
     "test:users": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/06-users-rbac.test.js",
-    "test:backup": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/07-backup.test.js"
+    "test:backup": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/07-backup.test.js",
+    "test:settings-auth-ux": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit tests/08-settings-auth-ux.test.js"
   },
   "dependencies": {
     "form-data": "^4.0.0",
