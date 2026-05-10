@@ -149,11 +149,8 @@ test.describe('TC-01: RH-104 — DA_GIAO order shows read-only Báo giá (AC-1)'
     // The locked info card must contain the "Báo giá" label
     await expect(page.getByText('Báo giá:')).toBeVisible({ timeout: 10_000 });
 
-    // The formatted value should be visible.
-    // Note: order.quotation arrives from the API as a string (e.g. "350000.00"),
-    // so .toLocaleString('vi-VN') on a string returns the string unchanged.
-    // Actual rendered text is "350000.00 đ".
-    await expect(page.getByText(/350000/)).toBeVisible({ timeout: 10_000 });
+    // Rendered as vi-VN locale: "350.000 đ"
+    await expect(page.getByText(/350[.,]000/)).toBeVisible({ timeout: 10_000 });
 
     // There must NOT be an editable input for quotation on a terminal order
     await expect(page.locator('input[inputmode="numeric"]')).toHaveCount(0);
@@ -194,8 +191,8 @@ test.describe('TC-02: RH-104 — HUY_TRA_MAY order shows read-only Báo giá (AC
     await page.goto(`/orders/${orderId}`);
 
     await expect(page.getByText('Báo giá:')).toBeVisible({ timeout: 10_000 });
-    // Actual rendered text is "280000.00 đ" (API returns quotation as string, toLocaleString no-ops)
-    await expect(page.getByText(/280000/)).toBeVisible({ timeout: 10_000 });
+    // Rendered as vi-VN locale: "280.000 đ"
+    await expect(page.getByText(/280[.,]000/)).toBeVisible({ timeout: 10_000 });
 
     // No editable input on terminal order
     await expect(page.locator('input[inputmode="numeric"]')).toHaveCount(0);
