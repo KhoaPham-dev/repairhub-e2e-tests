@@ -141,15 +141,15 @@ test.describe('PW-02 Order List & Detail', () => {
 
   test('seeded order appears in the list', async ({ page }) => {
     await loginViaUI(page);
-    await page.goto('/orders');
-    // The order code assigned by the backend should be visible on the list
+    // Search by order code to avoid pagination pushing it off the first page
+    await page.goto(`/orders?search=${orderCode}`);
     await expect(page.getByText(orderCode)).toBeVisible({ timeout: 10_000 });
   });
 
   test('clicking an order card navigates to its detail page', async ({ page }) => {
     await loginViaUI(page);
-    await page.goto('/orders');
-    // Click the card that contains the seeded order code
+    // Search by order code so the card is on the first page regardless of total order count
+    await page.goto(`/orders?search=${orderCode}`);
     await page.getByText(orderCode).click();
     await page.waitForURL(new RegExp(`/orders/${orderId}`), { timeout: 8_000 });
     // Detail page shows the order code prominently
@@ -187,7 +187,8 @@ test.describe('PW-02 Order List — Filters & Search', () => {
 
   test('status filter "Tiếp nhận" shows seeded order and tab is active', async ({ page }) => {
     await loginViaUI(page);
-    await page.goto('/orders');
+    // Pre-filter by order code so the seeded order is on the first page
+    await page.goto(`/orders?search=${orderCode}`);
 
     // Click the "Tiếp nhận" status filter tab
     const tiepNhanBtn = page.getByRole('button', { name: 'Tiếp nhận' });
