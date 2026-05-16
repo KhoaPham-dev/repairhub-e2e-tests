@@ -104,7 +104,7 @@ test.describe('PW-02 Order List & Detail', () => {
     // Page header
     await expect(page.getByRole('heading', { name: 'Đơn hàng' })).toBeVisible();
     // Search input
-    await expect(page.getByPlaceholder('Tìm theo tên, SĐT, serial...')).toBeVisible();
+    await expect(page.getByPlaceholder('Tìm theo tên thiết bị, SĐT, serial...')).toBeVisible();
   });
 
   test('status filter tabs are rendered', async ({ page }) => {
@@ -208,7 +208,7 @@ test.describe('PW-02 Order List — Filters & Search', () => {
     await page.goto('/orders');
 
     // Fill the search input with the seeded order code
-    const searchInput = page.getByPlaceholder('Tìm theo tên, SĐT, serial...');
+    const searchInput = page.getByPlaceholder('Tìm theo tên thiết bị, SĐT, serial...');
     await expect(searchInput).toBeVisible({ timeout: 8_000 });
     await searchInput.fill(orderCode);
 

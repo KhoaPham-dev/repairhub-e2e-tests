@@ -27,18 +27,10 @@ test.describe('PW-01 Login / Logout', () => {
 
   test('valid admin credentials redirect to dashboard', async ({ page }) => {
     await loginViaUI(page);
-    // After login we should be at the root dashboard, not /login
+    // After login we should be at /orders (not /login)
     expect(page.url()).not.toContain('/login');
-    // Dashboard should show status counts section (heading)
-    await expect(page.getByRole('heading', { name: 'Tổng quan' })).toBeVisible();
-  });
-
-  test('dashboard shows authenticated content after login', async ({ page }) => {
-    await loginViaUI(page);
-    // "Đang xử lý" KPI card is always present (count may be 0)
-    await expect(page.getByText('Đang xử lý')).toBeVisible();
-    // Greeting line contains "Xin chào"
-    await expect(page.getByText(/Xin chào/i)).toBeVisible();
+    // Order list heading is always present on /orders
+    await expect(page.getByRole('heading', { name: 'Đơn hàng' })).toBeVisible();
   });
 
   test('logout clears session and redirects to /login', async ({ page }) => {
