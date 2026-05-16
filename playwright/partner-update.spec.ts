@@ -106,7 +106,7 @@ test.describe('Partner Customer Update', () => {
   //   The API PUT succeeds but setCustomer(res.data) drops 'orders' causing crash.
   //   This test documents the bug and verifies data IS saved server-side.
   // ---------------------------------------------------------------------------
-  test('TC-02: [BUG] Page crashes after save due to missing orders in PUT response', async ({ page, request }) => {
+  test('TC-02: Page remains stable after save (orders merge fix)', async ({ page, request }) => {
     await loginViaUI(page);
     await page.goto(`/customers/${partnerId}`);
 
@@ -134,15 +134,13 @@ test.describe('Partner Customer Update', () => {
     // Wait briefly for network + render
     await page.waitForTimeout(2_500);
 
-    // Assert the bug: after save, page crashes and renders no buttons
+    // Assert the fix: after save, page does NOT crash — "Chỉnh sửa" button must be visible
+    // (setCustomer now merges with previous orders state, preventing the missing-orders crash)
     const buttons = await page.locator('button').all();
     const buttonTexts = await Promise.all(buttons.map((b) => b.textContent()));
     const hasChinhSuaAfterSave = buttonTexts.some((t) => t && t.includes('Chỉnh sửa'));
 
-    // This assertion documents the FAIL: "Chỉnh sửa" is NOT present because page crashed
-    // A correct implementation would show it — this test will pass once the bug is fixed
-    // For now it documents the failure state
-    expect(hasChinhSuaAfterSave).toBe(false); // Bug confirmed: UI crashes after save
+    expect(hasChinhSuaAfterSave).toBe(true); // Fix confirmed: UI stable after save
 
     // Verify via API that the data WAS saved server-side despite the UI crash
     const getRes = await request.get(`${API_BASE}/customers/${partnerId}`, {
