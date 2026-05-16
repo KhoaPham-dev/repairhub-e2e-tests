@@ -263,15 +263,16 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Set up dialog handler to DISMISS (cancel)
-    page.once('dialog', (dialog) => dialog.dismiss());
-
-    // Select HUY_TRA_MAY
+    // Select HUY_TRA_MAY and click Save — the app shows a React ConfirmModal
     await page.locator('select').selectOption({ label: 'Huỷ trả máy' });
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
 
-    // After dismiss, status should remain Trả hàng
-    // Wait briefly to confirm no success message and badge unchanged
+    // Wait for the ConfirmModal to appear and click Huỷ (cancel) — exact: true to
+    // avoid matching the "Huỷ trả máy" status button still visible in the background
+    await expect(page.getByRole('button', { name: 'Huỷ', exact: true })).toBeVisible({ timeout: 8_000 });
+    await page.getByRole('button', { name: 'Huỷ', exact: true }).click();
+
+    // After cancelling, status should remain Trả hàng
     await page.waitForTimeout(1500);
     await expect(badge).toContainText('Trả hàng');
     // No success banner should appear
@@ -285,13 +286,13 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Mock window.confirm to return true (accept) so dialog doesn't block the click.
-    // page.once('dialog', accept) is unreliable: Playwright may auto-dismiss the dialog
-    // before the async dialog.accept() CDP command resolves.
-    await page.evaluate(() => { (window as any).confirm = () => true; });
-
+    // Select HUY_TRA_MAY and click Save — the app shows a React ConfirmModal
     await page.locator('select').selectOption({ label: 'Huỷ trả máy' });
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
+
+    // Wait for the ConfirmModal to appear and click Xác nhận (confirm)
+    await expect(page.getByRole('button', { name: 'Xác nhận' })).toBeVisible({ timeout: 8_000 });
+    await page.getByRole('button', { name: 'Xác nhận' }).click();
 
     // HUY_TRA_MAY is a terminal status — the editable section (including the success
     // toast) is hidden immediately after load() re-fetches the order. Assert the
