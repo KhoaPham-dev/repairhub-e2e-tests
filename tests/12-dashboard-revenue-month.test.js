@@ -10,7 +10,7 @@
  *   - Revenue values are numbers >= 0
  *   - Unauthenticated request returns 401
  *
- * Prerequisites: backend running at http://localhost:3001
+ * Prerequisites: backend running at http://localhost:6061
  */
 
 const { api, login } = require('../helpers/api');

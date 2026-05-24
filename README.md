@@ -5,7 +5,7 @@ Fetch-based API integration tests covering all Phase 1 acceptance criteria (RH-2
 ## Prerequisites
 
 - Node.js 18+
-- RepairHub backend running at `http://localhost:3001`
+- RepairHub backend running at `http://localhost:6061`
 - PostgreSQL seeded via `npm run seed` in `repairhub-backend/`
 
 ## Setup
@@ -34,7 +34,7 @@ npm run test:backup     # TC-07 Backup & Restore
 ## Custom API URL
 
 ```bash
-API_URL=http://your-server:3001/api npm test
+API_URL=http://your-server:6061/api npm test
 ```
 
 ## Test Structure

@@ -13,14 +13,14 @@
  *   9. Selecting "Bảo Hành" product type shows warranty search sub-form
  *  10. Full end-to-end order creation: seed customer via API, fill form, submit, verify redirect
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  */
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 /** Obtain a JWT token via API. */
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {

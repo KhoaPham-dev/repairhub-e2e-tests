@@ -260,7 +260,7 @@ describe('TC-09c GET /reports/:id/download — download', () => {
     }
 
     const fetch = require('node-fetch');
-    const BASE_URL = process.env.API_URL || 'http://localhost:3001/api';
+    const BASE_URL = process.env.API_URL || 'http://localhost:6061/api';
 
     const response = await fetch(
       `${BASE_URL}/reports/${downloadableReportId}/download`,

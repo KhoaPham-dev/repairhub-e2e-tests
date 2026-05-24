@@ -8,14 +8,14 @@
  *   TC-04: ConfirmModal cancel keeps status unchanged
  *   TC-05: ConfirmModal confirm transitions order to HUY_TRA_MAY
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  */
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 // ---------------------------------------------------------------------------
 // API helpers (mirrored from 05-order-status-flow.spec.ts)

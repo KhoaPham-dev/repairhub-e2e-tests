@@ -8,14 +8,14 @@
  *   TC-04  Clearing the input leaves it empty (no crash, no erroneous value)
  *
  * Prerequisites:
- *   - Frontend running at http://localhost:3000
- *   - Backend running at http://localhost:3001
+ *   - Frontend running at http://localhost:6060
+ *   - Backend running at http://localhost:6061
  */
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 

@@ -8,7 +8,7 @@ const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = process.env.API_URL || 'http://localhost:3001/api';
+const BASE_URL = process.env.API_URL || 'http://localhost:6061/api';
 
 async function request(method, endpoint, { body, token, formData } = {}) {
   const headers = {};

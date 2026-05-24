@@ -10,14 +10,14 @@
  *   - Click an order card → navigates to /orders/:id detail page
  *   - Detail page shows order code, device name, and current status
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  */
 
 import { test, expect, Page } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 /** Use the backend API to obtain a JWT token. */
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {

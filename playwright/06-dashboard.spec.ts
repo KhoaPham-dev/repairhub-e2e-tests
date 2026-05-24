@@ -10,8 +10,8 @@
  *   - Clicking "Tháng này" activates that filter button
  *   - Revenue chart heading "Biểu đồ doanh thu" is visible
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  */
 
 import { test, expect } from '@playwright/test';

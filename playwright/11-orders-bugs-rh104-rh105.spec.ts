@@ -13,14 +13,14 @@
  *   TC-07: Loading /orders?status=DA_GIAO activates the correct status tab on load
  *   TC-08: Navigating to order detail and pressing back preserves filter in URL and tab state
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  */
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 // ---------------------------------------------------------------------------
 // API helpers

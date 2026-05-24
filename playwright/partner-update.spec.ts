@@ -16,15 +16,15 @@
  *   Fix required: preserve orders from previous state, or re-fetch full customer after save.
  *
  * Prerequisites:
- *   - Backend running at http://localhost:3001
- *   - Frontend running at http://localhost:3000
+ *   - Backend running at http://localhost:6061
+ *   - Frontend running at http://localhost:6060
  *   - Admin user: admin / admin123
  */
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {
   const res = await request.post(`${API_BASE}/auth/login`, {

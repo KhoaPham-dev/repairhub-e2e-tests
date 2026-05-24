@@ -10,8 +10,8 @@
  *   - Warranty card shows order code, device name, customer phone, warranty status
  *   - "Xem đơn hàng" link navigates to the order detail page
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  *
  * Note: The warranty endpoint returns only orders in terminal status (DA_GIAO).
  *       This test seeds a full order and advances it through the status workflow
@@ -21,7 +21,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 
-const API_BASE = process.env.API_URL ?? 'http://localhost:3001/api';
+const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {
   const res = await request.post(`${API_BASE}/auth/login`, {

@@ -8,8 +8,8 @@
  *   - Logout via clearAuth removes token → redirect back to /login
  *   - Invalid credentials → error message shown, no redirect
  *
- * Prerequisites: frontend running at http://localhost:3000
- *                backend running at http://localhost:3001
+ * Prerequisites: frontend running at http://localhost:6060
+ *                backend running at http://localhost:6061
  */
 
 import { test, expect } from '@playwright/test';
