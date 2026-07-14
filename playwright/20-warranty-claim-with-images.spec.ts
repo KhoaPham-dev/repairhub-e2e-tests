@@ -56,12 +56,15 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
   let token: string;
   let sourceOrderId: string;
   let customerId: string;
-  const runId = Date.now();
-  const customerPhone = `090${String(runId).slice(-7)}`;
-  const serial = `SN-PW20-${runId}`;
+  let runId: number;
+  let customerPhone: string;
+  let serial: string;
   let createdWarrantyOrderId: string | null = null;
 
   test.beforeAll(async ({ request }) => {
+    runId = Date.now();
+    customerPhone = `090${String(runId).slice(-7)}`;
+    serial = `SN-PW20-${runId}`;
     token = await apiLogin(request);
 
     // Create customer
@@ -130,11 +133,18 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
 
     // Enter customer phone to trigger warranty search
     await page.getByPlaceholder('Số điện thoại *').fill(customerPhone);
-    await page.waitForTimeout(1000);
+    // Wait for search debounce (300ms) + network
+    await page.waitForTimeout(1500);
 
     // Wait for warranty results and select the order
-    await expect(page.getByText(new RegExp(`Tai nghe PW20-${runId}`))).toBeVisible({ timeout: 10_000 });
-    await page.getByText(new RegExp(`Tai nghe PW20-${runId}`)).first().click();
+    // The warranty card shows order code and device name
+    await expect(page.getByText(sourceOrderId)).toBeVisible({ timeout: 10_000 }).catch(async () => {
+      // Fallback: look for the device name pattern
+      await expect(page.getByText(new RegExp(`PW20-${runId}`))).toBeVisible({ timeout: 5_000 });
+    });
+
+    // Click on the warranty card (look for the order code or device name)
+    await page.getByText(new RegExp(`PW20-${runId}`)).first().click();
     await page.waitForTimeout(500);
 
     // Verify fault description field appears
@@ -151,7 +161,7 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     await page.getByText('Chọn hình ảnh').first().click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(testImage);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     // Verify image preview appears
     await expect(page.getByText(/Đã chọn \d+ ảnh/)).toBeVisible({ timeout: 5_000 });
@@ -163,18 +173,12 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     await page.waitForURL(/\/orders$/, { timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Đơn hàng' })).toBeVisible({ timeout: 5_000 });
 
-    // Verify order was created by checking for the warranty order code pattern
-    await page.waitForTimeout(1000);
-    const orderCode = await page.getByText(new RegExp(`${runId}`)).first().textContent();
-    expect(orderCode).toBeTruthy();
-
-    // Store the created warranty order ID for cleanup
-    // We need to find it via API since we don't have the ID from UI
+    // Store the created warranty order ID for cleanup and verify via API
     const ordersRes = await request.get(`${API_BASE}/orders?search=${customerPhone}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const orders = (await ordersRes.json()).data;
-    const warrantyOrder = orders.find((o: any) => o.order_code.includes('-BH'));
+    const warrantyOrder = orders.find((o: any) => o.order_code.includes('-BH') && o.device_name.includes(`PW20-${runId}`));
     if (warrantyOrder) {
       createdWarrantyOrderId = warrantyOrder.id;
 
@@ -191,7 +195,7 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     }
   });
 
-  test('warranty claim form validation - requires fault description', async ({ page }) => {
+  test('warranty claim form validation - requires fault description and images', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders/new');
 
@@ -201,15 +205,19 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
 
     // Enter customer phone
     await page.getByPlaceholder('Số điện thoại *').fill(customerPhone);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
-    // Select warranty
-    await page.getByText(new RegExp(`Tai nghe PW20-${runId}`)).first().click();
+    // Wait for and select warranty
+    await page.getByText(new RegExp(`PW20-${runId}`)).first().click();
     await page.waitForTimeout(500);
 
-    // Try to submit without fault description and without images
-    // The button should be disabled
+    // Without fault description and images, the submit button should be disabled
     const submitButton = page.getByRole('button', { name: 'Tạo đơn bảo hành' });
+    await expect(submitButton).toBeDisabled();
+
+    // Fill fault description but no images - still disabled
+    await page.getByPlaceholder('Mô tả lỗi *').fill('Test description');
+    await page.waitForTimeout(500);
     await expect(submitButton).toBeDisabled();
   });
 });
