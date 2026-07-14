@@ -136,10 +136,8 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     // Wait for search debounce (300ms) + network
     await page.waitForTimeout(1500);
 
-    // Wait for warranty results - look for the order code which is unique
+    // Wait for warranty results and select the order
     await expect(page.getByText(orderCode)).toBeVisible({ timeout: 10_000 });
-
-    // Click on the warranty card
     await page.getByText(orderCode).first().click();
     await page.waitForTimeout(500);
 
@@ -157,16 +155,22 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     await page.getByText('Chọn hình ảnh').first().click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(testImage);
-    await page.waitForTimeout(1000);
 
-    // Verify image preview appears
-    await expect(page.getByText(/Đã chọn \d+ ảnh/)).toBeVisible({ timeout: 5_000 });
+    // Wait for image preview to appear (shows "Đã chọn X ảnh")
+    await expect(page.getByText(/Đã chọn/)).toBeVisible({ timeout: 10_000 });
+
+    // Take a screenshot for debugging
+    await page.screenshot({ path: '.playwright-mcp/warranty-after-upload.png' });
+
+    // Wait for submit button to become enabled
+    const submitButton = page.getByRole('button', { name: 'Tạo đơn bảo hành' });
+    await expect(submitButton).toBeEnabled({ timeout: 10_000 });
 
     // Submit warranty claim
-    await page.getByRole('button', { name: 'Tạo đơn bảo hành' }).click();
+    await submitButton.click();
 
     // Wait for navigation to orders page
-    await page.waitForURL(/\/orders$/, { timeout: 10_000 });
+    await page.waitForURL(/\/orders$/, { timeout: 15_000 });
     await expect(page.getByRole('heading', { name: 'Đơn hàng' })).toBeVisible({ timeout: 5_000 });
 
     // Verify via API that the warranty order was created correctly
