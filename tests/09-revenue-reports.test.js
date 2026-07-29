@@ -195,6 +195,32 @@ describe('TC-09b POST /reports/generate — manual generation', () => {
     expect(body.success).toBe(true);
     expect(body.data.status).toBe('done');
   });
+
+  test('period=this_month — returns 201 with month-to-date report', async () => {
+    const { status, body } = await api.post('/reports/generate', {
+      token: adminToken,
+      body: { period: 'this_month' },
+    });
+
+    expect(status).toBe(201);
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe('done');
+    expect(body.data.period_start).toBeTruthy();
+    expect(body.data.period_end).toBeTruthy();
+  });
+
+  test('period=last_month — returns 201 with previous month report', async () => {
+    const { status, body } = await api.post('/reports/generate', {
+      token: adminToken,
+      body: { period: 'last_month' },
+    });
+
+    expect(status).toBe(201);
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe('done');
+    expect(body.data.period_start).toBeTruthy();
+    expect(body.data.period_end).toBeTruthy();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,7 +469,7 @@ describe('TC-09e RH-87 Excel workbook — two sheets with correct structure', ()
 
 describe('TC-09d RH-89 Scheduler — MANUAL', () => {
   test.skip(
-    'Scheduler auto-generates report on 1st and 15th — MANUAL: cannot trigger node-cron in E2E environment',
+    'Scheduler auto-generates report on 1st of month at 00:00 for previous month — MANUAL: cannot trigger node-cron in E2E environment',
     () => {}
   );
 });
