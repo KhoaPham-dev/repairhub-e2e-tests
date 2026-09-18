@@ -70,9 +70,10 @@ for where to set this for Playwright runs.
 
 Before running any DELETE, cleanup logs `[e2e-cleanup] target host=<host>
 db=<dbname>` (never credentials) and only proceeds if the host is a
-loopback address (`localhost`, `127.0.0.1`, `::1`) or this project's local
-docker-compose Postgres service name (`postgres`/`db`), **or** the
-database name matches `/test|e2e/i`. Otherwise it refuses — throwing an
+loopback address (`localhost`, `127.0.0.1`, `::1`) **or** the database
+name matches `/test|e2e/i`. Docker-compose service names such as `postgres`
+are intentionally not trusted, because the production stack in
+`repairhub-infra` uses the same service name. Otherwise it refuses — throwing an
 error, deleting nothing, leaving the registry intact — which is the
 expected outcome if `E2E_DATABASE_URL` ever ends up pointing at a
 shared/staging/production database. To intentionally clean up a database

@@ -38,6 +38,15 @@ test('every documented LOCAL_HOSTS entry is allowed without the remote override'
   }
 });
 
+test('docker-compose service names (shared with the production stack) are not trusted', () => {
+  for (const host of ['postgres', 'db']) {
+    assert.equal(LOCAL_HOSTS.has(host), false);
+    assert.equal(isCleanupTargetAllowed({ host, dbName: 'repairhub' }, false), false);
+  }
+  // A compose-hosted database is still allowed when it is clearly a test DB.
+  assert.equal(isCleanupTargetAllowed({ host: 'postgres', dbName: 'repairhub_e2e' }, false), true);
+});
+
 test('a db name matching /test|e2e/i is allowed on an otherwise unknown host', () => {
   assert.equal(isCleanupTargetAllowed({ host: 'db.example.com', dbName: 'repairhub_test' }, false), true);
   assert.equal(isCleanupTargetAllowed({ host: 'db.example.com', dbName: 'e2e_scratch' }, false), true);

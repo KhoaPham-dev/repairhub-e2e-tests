@@ -32,11 +32,12 @@ const fs = require('fs');
 const path = require('path');
 
 // Hosts that are always safe to run DELETEs against without further checks:
-// loopback addresses, plus the docker-compose service name this project's
-// own local/dev stacks use for Postgres (repairhub-infra/docker-compose*.yml
-// — the `postgres` service; `db` is included too as a common alternative
-// name in case a future compose file uses it).
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'postgres', 'db']);
+// loopback addresses only. Docker-compose service names (e.g. `postgres`) are
+// deliberately NOT trusted: repairhub-infra's production compose stack uses
+// the same `postgres` service name, so trusting it would let a run on the VPS
+// delete from the production database. Use a /test|e2e/i database name or
+// E2E_ALLOW_REMOTE_CLEANUP=1 for anything that isn't loopback.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 /**
  * Parse E2E_DATABASE_URL into just the parts needed for the safety check
