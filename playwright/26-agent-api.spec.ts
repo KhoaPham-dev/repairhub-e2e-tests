@@ -276,15 +276,9 @@ test.describe('PW-26 Agent API', () => {
 
     const todayVn = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
 
-    // NOTE: the detail lookup below deliberately uses order_code, not the
-    // UUID id — GET /api/agent/orders/:idOrCode 500s for a well-formed UUID
-    // (a real backend bug; see the dedicated "known bug" test in the
-    // /orders/:idOrCode describe block below). Using order_code here keeps
-    // this test focused on the PII acceptance criterion rather than being
-    // blocked by that unrelated, already-documented bug.
     const [listRes, detailRes, featuredRes] = await Promise.all([
       request.get(`${AGENT_BASE}/orders?limit=100`, { headers: agentHeaders() }),
-      request.get(`${AGENT_BASE}/orders/${orderCode}`, { headers: agentHeaders() }),
+      request.get(`${AGENT_BASE}/orders/${orderId}`, { headers: agentHeaders() }),
       request.get(`${AGENT_BASE}/featured?date=${todayVn}&limit=20`, { headers: agentHeaders() }),
     ]);
     expect(listRes.status()).toBe(200);
@@ -314,25 +308,16 @@ test.describe('PW-26 Agent API', () => {
   // ---------------------------------------------------------------------
 
   test.describe('/orders', () => {
-    test('invalid limit (non-integer, or above the 1-100 range) -> 400', async ({ request }) => {
-      for (const limit of ['101', 'abc', '-1']) {
+    // Non-integers, and anything outside the documented 1-100 range —
+    // including 0 below the minimum — must all be rejected. Fixed in
+    // backend 9298595 (parseIntParam() previously had no lower bound, so
+    // limit=0 silently fell through to a 200 with an empty items[]).
+    test('invalid limit (non-integer, or outside the 1-100 range) -> 400', async ({ request }) => {
+      for (const limit of ['0', '101', 'abc', '-1']) {
         const res = await request.get(`${AGENT_BASE}/orders?limit=${limit}`, { headers: agentHeaders() });
         expect(res.status(), `limit=${limit}`).toBe(400);
         expect((await res.json()).error).toBe('Invalid limit');
       }
-    });
-
-    // KNOWN BUG (see final QA report): api-contracts.md documents limit as
-    // "1-100 — values outside the range ... -> 400 Invalid limit", but the
-    // route's parseIntParam() only rejects values ABOVE max — it never
-    // enforces a minimum of 1. limit=0 is silently accepted and returned
-    // as data.limit=0 with an empty items[] instead of a 400. This asserts
-    // the DOCUMENTED contract, so it will fail until that's fixed.
-    test('limit=0 -> 400 per the documented 1-100 range (currently returns 200 — bug)', async ({ request }) => {
-      test.fail(true, 'RH-149 finding: parseIntParam() never enforces the documented minimum of 1 for limit — see comment above and the final QA report.');
-      const res = await request.get(`${AGENT_BASE}/orders?limit=0`, { headers: agentHeaders() });
-      expect(res.status()).toBe(400);
-      expect((await res.json()).error).toBe('Invalid limit');
     });
 
     test('invalid offset -> 400', async ({ request }) => {
@@ -421,7 +406,7 @@ test.describe('PW-26 Agent API', () => {
   // ---------------------------------------------------------------------
 
   test.describe('/orders/:idOrCode', () => {
-    test('by order_code returns the safe projection; status_timeline has only 3 fields; 404 for an unknown code', async ({ request }) => {
+    test('by id and by order_code return the same safe projection; status_timeline has only 3 fields; 404 for unknown', async ({ request }) => {
       const { orderId, orderCode, customerId } = await seedOrder(staffToken, request);
       await request.put(`${API_BASE}/orders/${orderId}/status`, {
         headers: { Authorization: `Bearer ${staffToken}` },
@@ -432,46 +417,30 @@ test.describe('PW-26 Agent API', () => {
         data: { status: 'BAO_GIA', notes: 'n2' },
       });
 
+      const byId = await (await request.get(`${AGENT_BASE}/orders/${orderId}`, { headers: agentHeaders() })).json();
       const byCode = await (await request.get(`${AGENT_BASE}/orders/${orderCode}`, { headers: agentHeaders() })).json();
-      expect(byCode.data.order_code).toBe(orderCode);
-      expect(byCode.data.status).toBe('BAO_GIA');
+      expect(byId.data).toEqual(byCode.data);
+      expect(byId.data.order_code).toBe(orderCode);
+      expect(byId.data.status).toBe('BAO_GIA');
 
-      const timeline = byCode.data.status_timeline as Array<Record<string, unknown>>;
+      const timeline = byId.data.status_timeline as Array<Record<string, unknown>>;
       expect(timeline.length).toBeGreaterThanOrEqual(3); // TIEP_NHAN (initial) + 2 transitions
       for (const entry of timeline) {
         expect(Object.keys(entry).sort()).toEqual(['changed_at', 'new_status', 'old_status']);
       }
 
-      // A non-existent, non-UUID-shaped code stays on the working (order_code) path.
-      const notFound = await request.get(`${AGENT_BASE}/orders/NONEXISTENT-CODE-${uniqueNow()}`, { headers: agentHeaders() });
-      expect(notFound.status()).toBe(404);
-      expect((await notFound.json()).error).toBe('Not found');
+      // A non-existent, non-UUID-shaped code.
+      const notFoundByCode = await request.get(`${AGENT_BASE}/orders/NONEXISTENT-CODE-${uniqueNow()}`, { headers: agentHeaders() });
+      expect(notFoundByCode.status()).toBe(404);
+      expect((await notFoundByCode.json()).error).toBe('Not found');
 
-      await cleanup(staffToken, request, customerId);
-    });
-
-    // KNOWN BUG (see final QA report): the contract says ":idOrCode accepts
-    // either the order UUID or its order_code" — but the route's SQL is
-    // `WHERE id = $1 OR order_code = $1`, comparing the SAME parameter
-    // against both a `uuid` column and a `varchar` column. Postgres cannot
-    // infer one type for $1 that satisfies both sides, so EVERY well-formed
-    // UUID — whether it matches a real order or not — 500s with a raw
-    // driver error ("operator does not exist: character varying = uuid")
-    // instead of returning 200 (existing order) or 404 (non-existent).
-    // Reproduced directly against Postgres via PREPARE/EXECUTE with the
-    // same query shape — this is a genuine backend bug, not an artifact of
-    // this test. Both assertions below encode the DOCUMENTED contract, so
-    // they fail until the query casts the parameter, e.g.
-    // `id = $1::uuid OR order_code = $1`.
-    test('lookup by id (UUID) — currently 500s instead of 200/404 (bug)', async ({ request }) => {
-      test.fail(true, 'RH-149 finding: `WHERE id = $1 OR order_code = $1` cannot type-unify uuid vs varchar for the same param — see comment above and the final QA report.');
-      const { orderId, customerId } = await seedOrder(staffToken, request);
-
-      const existing = await request.get(`${AGENT_BASE}/orders/${orderId}`, { headers: agentHeaders() });
-      expect(existing.status(), 'an existing order looked up by its UUID id should 200').toBe(200);
-
-      const nonExistent = await request.get(`${AGENT_BASE}/orders/00000000-0000-0000-0000-000000000000`, { headers: agentHeaders() });
-      expect(nonExistent.status(), 'a well-formed but non-existent UUID should 404, not 500').toBe(404);
+      // A well-formed but non-existent UUID — regression coverage for the
+      // fix in backend 9298595 (previously 500'd: `id = $1 OR order_code =
+      // $1` couldn't type-unify a uuid column and a varchar column across
+      // the same parameter; now `id = $1::uuid OR order_code = $2`).
+      const notFoundByUuid = await request.get(`${AGENT_BASE}/orders/00000000-0000-0000-0000-000000000000`, { headers: agentHeaders() });
+      expect(notFoundByUuid.status(), 'a well-formed but non-existent UUID should 404, not 500').toBe(404);
+      expect((await notFoundByUuid.json()).error).toBe('Not found');
 
       await cleanup(staffToken, request, customerId);
     });

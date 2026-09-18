@@ -236,35 +236,18 @@ test.describe('PW-27 MCP server', () => {
       await cleanup(staffToken, request, customerId);
     });
 
-    test('chi_tiet_don_hang matches the Agent API directly, by order_code', async ({ request }) => {
-      // Deliberately uses order_code, not the UUID id — GET
-      // /api/agent/orders/:idOrCode 500s for a well-formed UUID (a real
-      // backend bug; see 26-agent-api.spec.ts's dedicated "known bug" test
-      // and the final QA report). This tool proxies straight to that route,
-      // so chi_tiet_don_hang would surface the same bug as a tool error for
-      // an id lookup — that's covered by the bug report, not re-asserted here.
-      const { orderCode, customerId } = await seedOrderWithRealMedia(staffToken, request);
+    test('chi_tiet_don_hang matches the Agent API directly, by id and by order_code', async ({ request }) => {
+      const { orderId, orderCode, customerId } = await seedOrderWithRealMedia(staffToken, request);
 
-      const direct = await (await request.get(`${API_BASE}/agent/orders/${orderCode}`, { headers: { 'X-Agent-Key': AGENT_API_KEY } })).json();
+      const direct = await (await request.get(`${API_BASE}/agent/orders/${orderId}`, { headers: { 'X-Agent-Key': AGENT_API_KEY } })).json();
+
+      const byId = await client.callTool({ name: 'chi_tiet_don_hang', arguments: { order_id_or_code: orderId } });
+      expect(byId.isError).toBeFalsy();
+      expect(toolTextJson(byId as { content: Array<{ type: string; text?: string }> })).toEqual(direct.data);
 
       const byCode = await client.callTool({ name: 'chi_tiet_don_hang', arguments: { order_id_or_code: orderCode } });
       expect(byCode.isError).toBeFalsy();
       expect(toolTextJson(byCode as { content: Array<{ type: string; text?: string }> })).toEqual(direct.data);
-
-      await cleanup(staffToken, request, customerId);
-    });
-
-    // KNOWN BUG (see 26-agent-api.spec.ts and the final QA report): chi_tiet_don_hang
-    // proxies straight to GET /api/agent/orders/:idOrCode, which 500s for
-    // any well-formed UUID. This documents the DOCUMENTED contract
-    // (isError should be false for an existing order's own id) and fails
-    // until that route casts its SQL parameter correctly.
-    test('chi_tiet_don_hang by id (UUID) — currently returns a tool error instead of the order (bug)', async ({ request }) => {
-      test.fail(true, 'RH-149 finding: proxies GET /api/agent/orders/:idOrCode, which 500s for a well-formed UUID — see 26-agent-api.spec.ts and the final QA report.');
-      const { orderId, customerId } = await seedOrderWithRealMedia(staffToken, request);
-
-      const byId = await client.callTool({ name: 'chi_tiet_don_hang', arguments: { order_id_or_code: orderId } });
-      expect(byId.isError, 'looking up an existing order by its own id should not be a tool error').toBeFalsy();
 
       await cleanup(staffToken, request, customerId);
     });
