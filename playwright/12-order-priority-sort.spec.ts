@@ -24,10 +24,11 @@
  *   - PostgreSQL accessible (connection derived from REPAIRHUB_DATABASE_URL)
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { execSync } from 'child_process';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const DB_URL =
@@ -60,7 +61,7 @@ async function seedOrder(
   request: import('@playwright/test').APIRequestContext,
   opts: { phone?: string; quotation?: number; deviceSuffix?: string } = {},
 ): Promise<SeedResult> {
-  const runId = Date.now();
+  const runId = uniqueNow();
   const phone = opts.phone ?? `090${String(runId).slice(-7)}`;
   const deviceName = `Loa PW12-${opts.deviceSuffix ?? runId}`;
 
@@ -140,7 +141,13 @@ async function advanceStatus(
   });
 }
 
-/** Best-effort customer deletion (cascades to orders). */
+/**
+ * Best-effort immediate cleanup for customers with no orders (e.g. an
+ * unused seeded customer). Orders have no DB-level cascade from customers,
+ * so this silently no-ops (409, ignored) once the customer has any orders —
+ * the real cleanup for those happens via the DB teardown registered in
+ * playwright/helpers/fixtures.ts + playwright/global-teardown.ts.
+ */
 async function cleanup(
   token: string,
   request: import('@playwright/test').APIRequestContext,
@@ -201,9 +208,9 @@ test.describe('TC-02: HIGH priority order card has red border (border-red-500)',
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const tag = `HIGH-${Date.now()}`;
+    const tag = `HIGH-${uniqueNow()}`;
     ({ orderId, deviceName, customerId } = await seedOrder(token, request, {
-      phone: `091${String(Date.now()).slice(-7)}`,
+      phone: `091${String(uniqueNow()).slice(-7)}`,
       deviceSuffix: tag,
     }));
     // Backdate to 6 days ago → priority = HIGH
@@ -222,8 +229,8 @@ test.describe('TC-02: HIGH priority order card has red border (border-red-500)',
     // The card for this specific order must be visible
     await expect(page.getByText(deviceName)).toBeVisible({ timeout: 10_000 });
 
-    // The card is the clickable div with bg-white rounded-2xl that contains the device name
-    const card = page.locator('div.bg-white.rounded-2xl').filter({ hasText: deviceName });
+    // The card is the clickable order-card element that contains the device name
+    const card = page.getByTestId('order-card').filter({ hasText: deviceName });
     await expect(card).toHaveClass(/border-red-500/, { timeout: 8_000 });
   });
 
@@ -249,9 +256,9 @@ test.describe('TC-03: MEDIUM priority order card has yellow border (border-yello
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const tag = `MED-${Date.now()}`;
+    const tag = `MED-${uniqueNow()}`;
     ({ orderId, deviceName, customerId } = await seedOrder(token, request, {
-      phone: `092${String(Date.now()).slice(-7)}`,
+      phone: `092${String(uniqueNow()).slice(-7)}`,
       deviceSuffix: tag,
     }));
     // Backdate to 3 days ago → priority = MEDIUM (3 <= ageDays < 5)
@@ -269,7 +276,7 @@ test.describe('TC-03: MEDIUM priority order card has yellow border (border-yello
 
     await expect(page.getByText(deviceName)).toBeVisible({ timeout: 10_000 });
 
-    const card = page.locator('div.bg-white.rounded-2xl').filter({ hasText: deviceName });
+    const card = page.getByTestId('order-card').filter({ hasText: deviceName });
     await expect(card).toHaveClass(/border-yellow-400/, { timeout: 8_000 });
   });
 
@@ -301,12 +308,12 @@ test.describe('TC-04: HIGH priority order sorts before non-priority recent order
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    sharedPrefix = `TC04-${Date.now()}`;
+    sharedPrefix = `TC04-${uniqueNow()}`;
 
     // Seed the HIGH priority order (6 days old)
     ({ orderId: highOrderId, deviceName: highDeviceName, customerId: highCustomerId } =
       await seedOrder(token, request, {
-        phone: `093${String(Date.now()).slice(-7)}`,
+        phone: `093${String(uniqueNow()).slice(-7)}`,
         deviceSuffix: `${sharedPrefix}-HI`,
       }));
     backdateOrder(highOrderId, 6);
@@ -315,7 +322,7 @@ test.describe('TC-04: HIGH priority order sorts before non-priority recent order
     await new Promise((r) => setTimeout(r, 80));
     ({ deviceName: recentDeviceName, customerId: recentCustomerId } =
       await seedOrder(token, request, {
-        phone: `094${String(Date.now()).slice(-7)}`,
+        phone: `094${String(uniqueNow()).slice(-7)}`,
         deviceSuffix: `${sharedPrefix}-RE`,
       }));
   });
@@ -334,9 +341,9 @@ test.describe('TC-04: HIGH priority order sorts before non-priority recent order
     await expect(page.getByText(highDeviceName)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(recentDeviceName)).toBeVisible({ timeout: 10_000 });
 
-    // Locate the actual order cards (the clickable bg-white rounded-2xl divs)
-    const highCard = page.locator('div.bg-white.rounded-2xl').filter({ hasText: highDeviceName });
-    const recentCard = page.locator('div.bg-white.rounded-2xl').filter({ hasText: recentDeviceName });
+    // Locate the actual order cards (the clickable order-card elements)
+    const highCard = page.getByTestId('order-card').filter({ hasText: highDeviceName });
+    const recentCard = page.getByTestId('order-card').filter({ hasText: recentDeviceName });
 
     const highBox = await highCard.boundingBox();
     const recentBox = await recentCard.boundingBox();
@@ -361,9 +368,9 @@ test.describe('TC-05: Terminal (DA_GIAO) order 6 days old has no red/yellow bord
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const tag = `TERM-${Date.now()}`;
+    const tag = `TERM-${uniqueNow()}`;
     ({ orderId, deviceName, customerId } = await seedOrder(token, request, {
-      phone: `095${String(Date.now()).slice(-7)}`,
+      phone: `095${String(uniqueNow()).slice(-7)}`,
       deviceSuffix: tag,
     }));
     // Advance through the full flow to DA_GIAO (terminal status)
@@ -388,7 +395,7 @@ test.describe('TC-05: Terminal (DA_GIAO) order 6 days old has no red/yellow bord
 
     await expect(page.getByText(deviceName)).toBeVisible({ timeout: 10_000 });
 
-    const card = page.locator('div.bg-white.rounded-2xl').filter({ hasText: deviceName });
+    const card = page.getByTestId('order-card').filter({ hasText: deviceName });
     const classList = await card.getAttribute('class');
     expect(classList).not.toMatch(/border-red-500/);
     expect(classList).not.toMatch(/border-yellow-400/);
@@ -402,7 +409,7 @@ test.describe('TC-05: Terminal (DA_GIAO) order 6 days old has no red/yellow bord
     await expect(page.getByText(deviceName)).toBeVisible({ timeout: 10_000 });
 
     // "Ưu tiên" badge must not appear on this card for a terminal order
-    const card = page.locator('div.bg-white.rounded-2xl').filter({ hasText: deviceName });
+    const card = page.getByTestId('order-card').filter({ hasText: deviceName });
     await expect(card.getByText(/Ưu tiên/)).toHaveCount(0);
   });
 });

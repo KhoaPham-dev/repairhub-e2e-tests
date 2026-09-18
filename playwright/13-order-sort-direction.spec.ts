@@ -24,9 +24,10 @@
  *   - PostgreSQL accessible (connection from REPAIRHUB_DATABASE_URL)
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { execSync } from 'child_process';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const DB_URL =
@@ -59,7 +60,7 @@ async function seedOrder(
   request: import('@playwright/test').APIRequestContext,
   opts: { phone?: string; deviceSuffix?: string } = {},
 ): Promise<SeedResult> {
-  const runId = Date.now();
+  const runId = uniqueNow();
   const phone = opts.phone ?? `090${String(runId).slice(-7)}`;
   const deviceName = `Loa PW13S-${opts.deviceSuffix ?? runId}`;
 
@@ -120,7 +121,13 @@ function backdateOrder(orderId: string, daysAgo: number): void {
   );
 }
 
-/** Best-effort customer deletion (cascades to orders). */
+/**
+ * Best-effort immediate cleanup for customers with no orders (e.g. an
+ * unused seeded customer). Orders have no DB-level cascade from customers,
+ * so this silently no-ops (409, ignored) once the customer has any orders —
+ * the real cleanup for those happens via the DB teardown registered in
+ * playwright/helpers/fixtures.ts + playwright/global-teardown.ts.
+ */
 async function cleanup(
   token: string,
   request: import('@playwright/test').APIRequestContext,
@@ -206,11 +213,11 @@ test.describe('TC-02 & TC-03: Sort toggle changes card order (stale-closure regr
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    sharedPrefix = `SORT114-${Date.now()}`;
+    sharedPrefix = `SORT114-${uniqueNow()}`;
 
     // Seed the OLDER order first
     const older = await seedOrder(token, request, {
-      phone: `096${String(Date.now()).slice(-7)}`,
+      phone: `096${String(uniqueNow()).slice(-7)}`,
       deviceSuffix: `${sharedPrefix}-OLD`,
     });
     olderDeviceName = older.deviceName;
@@ -225,7 +232,7 @@ test.describe('TC-02 & TC-03: Sort toggle changes card order (stale-closure regr
 
     // Seed the NEWER order (created just now — no backdate)
     const newer = await seedOrder(token, request, {
-      phone: `097${String(Date.now()).slice(-7)}`,
+      phone: `097${String(uniqueNow()).slice(-7)}`,
       deviceSuffix: `${sharedPrefix}-NEW`,
     });
     newerDeviceName = newer.deviceName;
@@ -248,10 +255,10 @@ test.describe('TC-02 & TC-03: Sort toggle changes card order (stale-closure regr
 
     // ASC baseline: OLDER card must appear above NEWER card
     const olderCard = page
-      .locator('div.bg-white.rounded-2xl')
+      .getByTestId('order-card')
       .filter({ hasText: olderDeviceName });
     const newerCard = page
-      .locator('div.bg-white.rounded-2xl')
+      .getByTestId('order-card')
       .filter({ hasText: newerDeviceName });
 
     const olderBoxAsc = await olderCard.boundingBox();
@@ -292,10 +299,10 @@ test.describe('TC-02 & TC-03: Sort toggle changes card order (stale-closure regr
 
     // DESC baseline: NEWER card must be above OLDER card
     const olderCard = page
-      .locator('div.bg-white.rounded-2xl')
+      .getByTestId('order-card')
       .filter({ hasText: olderDeviceName });
     const newerCard = page
-      .locator('div.bg-white.rounded-2xl')
+      .getByTestId('order-card')
       .filter({ hasText: newerDeviceName });
 
     const olderBoxDesc = await olderCard.boundingBox();

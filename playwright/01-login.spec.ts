@@ -12,7 +12,7 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER } from './helpers/auth';
 
 test.describe('PW-01 Login / Logout', () => {

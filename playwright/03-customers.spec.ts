@@ -13,8 +13,10 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
+import type { Page } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -29,7 +31,7 @@ async function apiLogin(request: import('@playwright/test').APIRequestContext): 
 test.describe('PW-03 Customer Search', () => {
   let token: string;
   let customerId: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
   const customerName = `Trần Thị PW03 ${runId}`;
   const customerPhone = `090${String(runId).slice(-7)}`;
 

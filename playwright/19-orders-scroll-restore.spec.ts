@@ -28,8 +28,9 @@
  *     page-count increment assertion may not fire — a comment is left at that step.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -60,8 +61,18 @@ async function seedOrders(
   token: string,
   request: import('@playwright/test').APIRequestContext,
   count: number,
-): Promise<{ customerIds: string[]; orderIds: string[]; firstOrderId: string; firstOrderCode: string }> {
-  const runId = Date.now();
+): Promise<{
+  customerIds: string[];
+  orderIds: string[];
+  firstOrderId: string;
+  firstOrderCode: string;
+  searchTag: string;
+}> {
+  const runId = uniqueNow();
+  // A substring shared by every seeded order's device_name, so a single search
+  // filters the list down to exactly this batch (with enough rows to scroll
+  // through) instead of a single order.
+  const searchTag = `PW-19-${runId}`;
 
   // Create a single customer to own all seeded orders
   const cRes = await request.post(`${API_BASE}/customers`, {
@@ -94,7 +105,7 @@ async function seedOrders(
         customer_id: customerId,
         branch_id: branchId,
         product_type: 'SPEAKER',
-        device_name: `Loa PW-19-${runId}-${i}`,
+        device_name: `Loa ${searchTag}-${i}`,
         serial_imei: `SN-PW19-${runId}-${i}`,
         fault_description: `E2E scroll restore test PW-19 item ${i}`,
         quotation: 100000 + i * 1000,
@@ -108,10 +119,16 @@ async function seedOrders(
     }
   }
 
-  return { customerIds: [customerId], orderIds, firstOrderId, firstOrderCode };
+  return { customerIds: [customerId], orderIds, firstOrderId, firstOrderCode, searchTag };
 }
 
-/** Best-effort cleanup — deletes the customer (cascades to orders). */
+/**
+ * Best-effort immediate cleanup for customers with no orders. Orders have
+ * no DB-level cascade from customers, so this silently no-ops (409,
+ * ignored) once the customer has any orders — the real cleanup for those
+ * happens via the DB teardown registered in playwright/helpers/fixtures.ts
+ * + playwright/global-teardown.ts.
+ */
 async function cleanup(
   token: string,
   request: import('@playwright/test').APIRequestContext,
@@ -171,6 +188,7 @@ test.describe('PW-19 — Orders scroll restore on back-navigation', () => {
   let customerIds: string[];
   let firstOrderId: string;
   let firstOrderCode: string;
+  let searchTag: string;
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
@@ -179,7 +197,7 @@ test.describe('PW-19 — Orders scroll restore on back-navigation', () => {
     // We create 25 orders so infinite scroll will load a second page when scrolled.
     // NOTE: If the database already has > 20 orders at test runtime, seeding fewer is
     // fine — the test guards against insufficient scroll by checking scrollTop > 0.
-    ({ customerIds, firstOrderId, firstOrderCode } = await seedOrders(token, request, 25));
+    ({ customerIds, firstOrderId, firstOrderCode, searchTag } = await seedOrders(token, request, 25));
   });
 
   test.afterAll(async ({ request }) => {
@@ -201,55 +219,58 @@ test.describe('PW-19 — Orders scroll restore on back-navigation', () => {
     // We wait for the page heading to confirm the list view is active.
     await expect(page.getByRole('heading', { name: 'Đơn hàng' })).toBeVisible({ timeout: 10_000 });
 
-    // Step 2: Scroll the <main> container downward to trigger infinite-scroll page load.
-    // We scroll in increments, waiting for new content to appear, to simulate a real user.
-    // NOTE: If the seed data has fewer than ~25 orders the page-count increment may not
-    // trigger, but the scrollTop assertion is still valid as long as scrollTop > 0.
-    const main = page.locator('main');
-
-    // Scroll down by 1200 px — enough to reach the bottom of a typical 20-item list
-    // and trigger the infinite-scroll sentinel.
-    await main.evaluate((el: HTMLElement) => {
-      el.scrollTop += 1200;
-    });
-
-    // Wait briefly for the infinite-scroll handler to fire and fetch the next page.
-    await page.waitForTimeout(1500);
-
-    // Capture the scroll position after scrolling. If scrollTop is still 0 the
-    // container may not have enough content to scroll — the test proceeds but the
-    // restore assertion uses a tolerance of 50 px which still passes at 0.
-    const scrollTopBefore = await getMainScrollTop(page);
-
-    // Step 3: Click an order card to navigate to the detail page.
-    // We use the seeded firstOrderCode to guarantee the card exists regardless of
-    // total order count (same approach as 02-orders.spec.ts).
-    // First, search for the seeded order so it is visible on screen.
+    // Step 2: Filter to just this test's seeded batch FIRST. The sessionStorage
+    // key is scoped to the current query string (`orders-scroll:{queryString}`),
+    // so scrolling under the unfiltered view and then filtering afterwards would
+    // scroll+save under two DIFFERENT keys — the live DB accumulates orders
+    // across every E2E run, so the unfiltered list also can't be relied on to
+    // place our batch within scrolling distance of the top under the default
+    // oldest-first sort. searchTag matches all 25 seeded orders' device_name,
+    // giving a filtered list with enough rows to actually scroll through.
     const searchInput = page.getByPlaceholder(/Tìm theo tên thiết bị/i);
     await expect(searchInput).toBeVisible({ timeout: 8_000 });
-    await searchInput.fill(firstOrderCode);
-
-    // Wait for the filtered list to settle.
+    await searchInput.fill(searchTag);
     await page.waitForTimeout(600);
 
-    // Click the order card — identified by its order code text (mirrors 02-orders.spec.ts).
-    await page.getByText(firstOrderCode).click();
+    // Step 3: Scroll the <main> container downward within the filtered view.
+    const main = page.locator('main');
+    await main.evaluate((el: HTMLElement) => {
+      el.scrollTop += 600;
+    });
+    await page.waitForTimeout(800);
+
+    // Capture the scroll position after scrolling — this must happen AFTER
+    // filtering (see above) since that's the query the click below will save
+    // the snapshot under.
+    const scrollTopBefore = await getMainScrollTop(page);
+    expect(scrollTopBefore, 'expected the filtered list to actually scroll').toBeGreaterThan(0);
+
+    // Step 4: Click an order card via a native DOM click() dispatched inside
+    // the page, NOT Playwright's locator.click(). Playwright's click() first
+    // scrolls its target into view if it judges that necessary (its geometry
+    // check doesn't account for the sticky header overlaying the top of
+    // <main>), which silently changed our scroll offset before the app's
+    // onClick handler ever read it — confirmed by instrumenting the app: the
+    // value it captured (and later restored) was the POST-autoscroll
+    // position, not the 600 px set above. Dispatching the click directly
+    // leaves the scroll position untouched.
+    await page.evaluate(() => {
+      const card = document.querySelector('[data-testid="order-card"]') as HTMLElement | null;
+      card?.click();
+    });
 
     // Assert the detail page loaded (URL changed to /orders/:id).
-    await page.waitForURL(new RegExp(`/orders/${firstOrderId}`), { timeout: 8_000 });
-    await expect(page).toHaveURL(new RegExp(`/orders/${firstOrderId}`));
+    await page.waitForURL(/\/orders\/[0-9a-f-]{36}(\?.*)?$/, { timeout: 8_000 });
 
-    // Step 4: Navigate back to the orders list.
+    // Step 5: Navigate back to the orders list.
     await page.goBack();
     await page.waitForURL(/\/orders/, { timeout: 8_000 });
 
     // Confirm we are back on the list (URL no longer points to a specific order id).
     await expect(page).toHaveURL(/\/orders(?!\/\w)/);
 
-    // Step 5: Assert the <main> scrollTop is restored to approximately the recorded value.
+    // Step 6: Assert the <main> scrollTop is restored to approximately the recorded value.
     // We allow a tolerance of 50 px to account for minor layout differences after refetch.
-    const scrollTopAfter = await getMainScrollTop(page);
-
     // Give the app a moment to complete its scroll restoration (it refetches pages first).
     // If the app animates the scroll we wait up to 2 s for the position to stabilise.
     await page.waitForFunction(
@@ -365,9 +386,11 @@ test.describe('PW-19 — Orders scroll restore on back-navigation', () => {
     await page.waitForTimeout(600);
 
     // Capture the URL query string at the moment of click — the sessionStorage key
-    // is `orders-scroll:{queryString}` where queryString is the current ?... portion.
+    // is `orders-scroll:{queryString}`, where queryString comes from Next's
+    // `useSearchParams().toString()` (URLSearchParams — no leading "?", unlike
+    // the WHATWG URL.search getter used by an earlier version of this test).
     const urlBefore = page.url();
-    const qsBefore = new URL(urlBefore).search; // e.g. "?search=RH-001"
+    const qsBefore = new URL(urlBefore).searchParams.toString(); // e.g. "search=RH-001"
 
     // Click the order card.
     await page.getByText(firstOrderCode).click();
@@ -376,7 +399,7 @@ test.describe('PW-19 — Orders scroll restore on back-navigation', () => {
     await page.waitForURL(new RegExp(`/orders/${firstOrderId}`), { timeout: 8_000 });
 
     // Step 4: Check that sessionStorage contains the expected key.
-    // The key format is `orders-scroll:{queryString}` (e.g. "orders-scroll:?search=RH-001").
+    // The key format is `orders-scroll:{queryString}` (e.g. "orders-scroll:search=RH-001").
     const storedValue = await page.evaluate((qs: string) => {
       const key = `orders-scroll:${qs}`;
       return sessionStorage.getItem(key);

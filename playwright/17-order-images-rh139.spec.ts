@@ -14,9 +14,10 @@
  *   - Admin user: admin / admin123
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import path from 'path';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const FIXT = (f: string) => path.join(__dirname, 'fixtures', f);
@@ -32,7 +33,7 @@ test.describe('RH-139 order image uploads', () => {
   let token: string;
   let customerId: string;
   let phone: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
   const devA = `RH139-A-${runId}`;
   const devB = `RH139-B-${runId}`;
 

@@ -14,9 +14,10 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -47,7 +48,7 @@ async function seedOrder(
   request: import('@playwright/test').APIRequestContext,
   opts: { phone?: string } = {},
 ): Promise<SeedResult> {
-  const runId = Date.now();
+  const runId = uniqueNow();
   const phone = opts.phone ?? `090${String(runId).slice(-7)}`;
 
   const cRes = await request.post(`${API_BASE}/customers`, {
@@ -108,7 +109,13 @@ async function advanceStatus(
   });
 }
 
-/** Best-effort customer deletion (cascades to orders). */
+/**
+ * Best-effort immediate cleanup for customers with no orders (e.g. an
+ * unused seeded customer). Orders have no DB-level cascade from customers,
+ * so this silently no-ops (409, ignored) once the customer has any orders —
+ * the real cleanup for those happens via the DB teardown registered in
+ * playwright/helpers/fixtures.ts + playwright/global-teardown.ts.
+ */
 async function cleanup(
   token: string,
   request: import('@playwright/test').APIRequestContext,
@@ -169,7 +176,7 @@ test.describe('TC-01: Flow 1 — status progression (RH-30 AC-1)', () => {
     await page.goto(`/orders/${orderId}`);
 
     // Initial status badge: Tiếp nhận
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Tiếp nhận', { timeout: 10_000 });
 
     // Select DANG_KIEM_TRA
@@ -195,7 +202,7 @@ test.describe('TC-01: Flow 1 — status progression (RH-30 AC-1)', () => {
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Kiểm tra', { timeout: 10_000 });
 
     await page.locator('select').selectOption({ label: 'Báo giá' });
@@ -230,7 +237,7 @@ test.describe('TC-02: Flow 2 — TRA_HANG path from BAO_GIA (RH-30 AC-2)', () =>
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Báo giá', { timeout: 10_000 });
 
     // Select TRA_HANG — label is "Trả hàng". TRA_HANG no longer requires any
@@ -270,7 +277,7 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
     // Select HUY_TRA_MAY — it now requires notes + a fresh COMPLETION photo
@@ -299,7 +306,7 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
     // Select HUY_TRA_MAY — it now requires notes + a fresh COMPLETION photo
@@ -334,7 +341,7 @@ test.describe('TC-04: phone number renders as tel: link (RH-30 AC-4)', () => {
   let customerId: string;
   // Use a unique phone based on run timestamp so parallel/repeated runs don't conflict.
   // Must match the frontend tel: regex ^[0-9+() \-]+$ and the backend phone sanitiser.
-  const validPhone = `090${String(Date.now()).slice(-7)}`;
+  const validPhone = `090${String(uniqueNow()).slice(-7)}`;
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
@@ -390,7 +397,7 @@ test.describe('TC-05: terminal status DA_GIAO hides status dropdown (RH-30 AC-1)
     await page.goto(`/orders/${orderId}`);
 
     // Badge shows Đã giao
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Đã giao', { timeout: 10_000 });
 
     // The editable section (including the select dropdown) must be absent

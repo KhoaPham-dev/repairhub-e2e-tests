@@ -49,11 +49,12 @@
  *                frontend running at http://localhost:6060
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { COMPLETION_IMAGE_FIXTURE } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const NOTES_MSG = 'Vui lòng nhập ghi chú khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
@@ -79,7 +80,7 @@ async function seedOrder(
   request: import('@playwright/test').APIRequestContext,
   opts: { phone?: string; warrantyMonths?: number } = {},
 ): Promise<SeedResult> {
-  const runId = Date.now() + Math.floor(Math.random() * 1000);
+  const runId = uniqueNow();
   const phone = opts.phone ?? `096${String(runId).slice(-7)}`;
 
   const cRes = await request.post(`${API_BASE}/customers`, {

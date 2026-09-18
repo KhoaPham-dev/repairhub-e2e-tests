@@ -4,6 +4,7 @@ dotenv.config({ path: './playwright/.env' });
 
 export default defineConfig({
   testDir: './playwright',
+  globalTeardown: require.resolve('./playwright/global-teardown'),
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:6060',
     headless: true,

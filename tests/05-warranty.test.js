@@ -69,10 +69,8 @@ beforeAll(async () => {
   deliveredOrderId = oBody.data.id;
 
   // Advance through full workflow to DA_GIAO so warranty lookup works
-  const steps = [
-    'DANG_KIEM_TRA', 'BAO_GIA', 'CHO_LINH_KIEN',
-    'DANG_SUA_CHUA', 'KIEM_TRA_LAI', 'SUA_XONG', 'DA_GIAO',
-  ];
+  // (matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31)
+  const steps = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
   for (const step of steps) {
     // DA_GIAO / HUY_TRA_MAY require non-blank notes and a fresh COMPLETION
     // image already on the order before the status PUT is accepted

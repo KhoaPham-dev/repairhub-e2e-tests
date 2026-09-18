@@ -25,9 +25,10 @@
  *                DB migration 005_orders_created_at_indexes.sql applied
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -54,7 +55,7 @@ test.describe('RH-131: Partner list search in new order form', () => {
   let token: string;
   let partnerIdA: string;
   let partnerIdB: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
   const partnerNameA = `Đối tác Alpha ${runId}`;
   const partnerPhoneA = `098${String(runId).slice(-7)}`;
   const partnerNameB = `Đối tác Beta ${runId}`;
@@ -200,7 +201,7 @@ test.describe('RH-133: Warranty duration changes recorded in Lịch sử trạng
   let orderId: string;
   let customerId: string;
   let branchId: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
@@ -353,17 +354,15 @@ test.describe('RH-134: Lịch sử đơn gốc on warranty order detail page', (
   let branchId: string;
   let sourceOrderId: string;
   let bhOrderId: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
 
   /** Advance an order through statuses up to DA_GIAO so it can create a BH order. */
   async function advanceToDelivered(
     orderId: string,
     request: import('@playwright/test').APIRequestContext,
   ) {
-    const statuses = [
-      'DANG_KIEM_TRA', 'BAO_GIA', 'CHO_LINH_KIEN',
-      'DANG_SUA_CHUA', 'KIEM_TRA_LAI', 'SUA_XONG', 'DA_GIAO',
-    ];
+    // Matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31.
+    const statuses = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
     for (const status of statuses) {
       // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
       // order before the status PUT is accepted (RH: status-change-required-images).

@@ -17,8 +17,9 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -36,7 +37,7 @@ async function seedCustomer(
   token: string,
   request: import('@playwright/test').APIRequestContext,
 ): Promise<{ customerId: string; phone: string }> {
-  const runId = Date.now();
+  const runId = uniqueNow();
   const phone = `090${String(runId).slice(-7)}`;
   const res = await request.post(`${API_BASE}/customers`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -68,7 +69,7 @@ async function seedOrder(
       customer_id: customerId,
       branch_id: branchId,
       product_type: 'SPEAKER',
-      device_name: `Loa PW-05-TC05 ${Date.now()}`,
+      device_name: `Loa PW-05-TC05 ${uniqueNow()}`,
       fault_description: 'TC-05 warranty test',
     },
   });
@@ -123,9 +124,9 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
     const firstBtn = branchCard.locator('button').first();
     await firstBtn.waitFor({ state: 'visible', timeout: 8_000 });
     await firstBtn.click();
-    // Selected branch buttons get bg-[#004EAB] and text-white
-    await expect(firstBtn).toHaveClass(/bg-\[#004EAB\]/, { timeout: 4_000 });
-    await expect(firstBtn).toHaveClass(/text-white/);
+    // Selected branch buttons get bg-accent and text-[#0B0B0B] (SegmentedControl)
+    await expect(firstBtn).toHaveClass(/bg-accent/, { timeout: 4_000 });
+    await expect(firstBtn).toHaveClass(/text-\[#0B0B0B\]/);
   });
 
   // TC-04: Product type shows Loa, Tai nghe, Bảo Hành as pill buttons
@@ -270,7 +271,7 @@ test.describe('PW-05 Create Order UX (RH-22)', () => {
     const suggestion = page.locator('div[class*="absolute"] button').filter({ hasText: phone }).first();
     await expect(suggestion).toBeVisible({ timeout: 6_000 });
     await suggestion.click();
-    // Customer selected — blue summary card appears
-    await expect(page.locator('.bg-blue-50')).toBeVisible({ timeout: 4_000 });
+    // Customer selected — summary card appears showing the selected customer's name
+    await expect(page.locator('div.bg-accent\\/10')).toBeVisible({ timeout: 4_000 });
   });
 });

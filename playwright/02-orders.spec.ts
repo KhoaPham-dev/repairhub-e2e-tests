@@ -14,8 +14,10 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
+import type { Page } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -34,7 +36,7 @@ async function apiLogin(request: import('@playwright/test').APIRequestContext): 
  * Returns { orderId, orderCode, customerId, branchId } for teardown.
  */
 async function seedOrder(token: string, request: import('@playwright/test').APIRequestContext) {
-  const runId = Date.now();
+  const runId = uniqueNow();
 
   const cRes = await request.post(`${API_BASE}/customers`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -195,9 +197,8 @@ test.describe('PW-02 Order List — Filters & Search', () => {
     await expect(tiepNhanBtn).toBeVisible({ timeout: 8_000 });
     await tiepNhanBtn.click();
 
-    // The active tab on the orders page gets bg-white shadow-sm styling
-    // (this filter row uses its own pill styling, not SegmentedControl's bg-[#004EAB])
-    await expect(tiepNhanBtn).toHaveClass(/bg-white/, { timeout: 4_000 });
+    // The active tab on the orders page gets bg-accent text-[#0B0B0B] shadow-sm styling
+    await expect(tiepNhanBtn).toHaveClass(/bg-accent/, { timeout: 4_000 });
     await expect(tiepNhanBtn).toHaveClass(/shadow-sm/);
 
     // Seeded order has status TIEP_NHAN — it should appear in the filtered list

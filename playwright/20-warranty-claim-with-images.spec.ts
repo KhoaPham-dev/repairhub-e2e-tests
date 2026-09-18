@@ -15,10 +15,11 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
 import * as path from 'path';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -36,15 +37,8 @@ async function advanceToDelivered(
   orderId: string,
   request: import('@playwright/test').APIRequestContext,
 ) {
-  const statuses = [
-    'DANG_KIEM_TRA',
-    'BAO_GIA',
-    'CHO_LINH_KIEN',
-    'DANG_SUA_CHUA',
-    'KIEM_TRA_LAI',
-    'SUA_XONG',
-    'DA_GIAO',
-  ];
+  // Matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31.
+  const statuses = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
   for (const status of statuses) {
     // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
     // order before the status PUT is accepted (RH: status-change-required-images).
@@ -69,7 +63,7 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
 
-    const runId = Date.now();
+    const runId = uniqueNow();
     customerPhone = `090${String(runId).slice(-7)}`;
 
     // Create customer
@@ -152,7 +146,7 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     await expect(faultDescriptionField).toBeVisible({ timeout: 5_000 });
 
     // Enter fault description
-    const faultDesc = `Lỗi bảo hành test PW-20 - ${Date.now()}`;
+    const faultDesc = `Lỗi bảo hành test PW-20 - ${uniqueNow()}`;
     await faultDescriptionField.fill(faultDesc);
 
     // Upload image

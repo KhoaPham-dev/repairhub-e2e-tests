@@ -15,8 +15,9 @@
  *   - Admin user: admin / admin123
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -32,7 +33,7 @@ test.describe('Duplicate phone on Add Customer', () => {
   let token: string;
   let existingId: string;
   let existingPhone: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);

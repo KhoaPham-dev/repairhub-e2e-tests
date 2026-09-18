@@ -7,6 +7,7 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const { recordCustomerId } = require('./registry');
 
 const BASE_URL = process.env.API_URL || 'http://localhost:6061/api';
 
@@ -36,6 +37,14 @@ async function request(method, endpoint, { body, token, formData } = {}) {
     responseBody = await response.json();
   } else {
     responseBody = await response.buffer();
+  }
+
+  // Record every customer this run creates, regardless of which test/helper
+  // triggered it, so the DB teardown at the end of the run can find and
+  // remove it (and its orders) without every call site having to remember
+  // to register it itself. See scripts/db-cleanup.js.
+  if (method === 'POST' && endpoint === '/customers' && response.status === 201 && responseBody?.data?.id) {
+    recordCustomerId(responseBody.data.id);
   }
 
   return { status: response.status, body: responseBody };

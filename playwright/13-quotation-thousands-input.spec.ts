@@ -12,8 +12,9 @@
  *   - Backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -37,7 +38,7 @@ async function seedOrder(
   token: string,
   quotation: number,
 ): Promise<{ orderId: string; customerId: string }> {
-  const runId = Date.now();
+  const runId = uniqueNow();
 
   // Customer
   const cRes = await request.post(`${API_BASE}/customers`, {

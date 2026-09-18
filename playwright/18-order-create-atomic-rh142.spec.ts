@@ -10,10 +10,11 @@
  * Prerequisites: backend :6061, admin / admin123.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import fs from 'fs';
 import path from 'path';
 import { ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const FIXT = (f: string) => path.join(__dirname, 'fixtures', f);
@@ -25,7 +26,7 @@ async function apiLogin(request: import('@playwright/test').APIRequestContext): 
 async function seedCustomer(request: import('@playwright/test').APIRequestContext, token: string, tag: string): Promise<string> {
   const res = await request.post(`${API_BASE}/customers`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: { phone: `07${String(Date.now()).slice(-8)}${tag}`.slice(0, 15), name: `KH RH142 ${tag}`, type: 'RETAIL' },
+    data: { phone: `07${String(uniqueNow()).slice(-8)}${tag}`.slice(0, 15), name: `KH RH142 ${tag}`, type: 'RETAIL' },
   });
   return (await res.json()).data.id as string;
 }
@@ -39,7 +40,7 @@ test.describe('RH-142 atomic order+images create', () => {
   let branchId: string;
   let custOk: string;
   let custRollback: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
   const devA = `RH142-A-${runId}`;
   const devB = `RH142-B-${runId}`;
 

@@ -14,9 +14,10 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -43,7 +44,7 @@ async function seedOrder(
   request: import('@playwright/test').APIRequestContext,
   opts: { phone?: string } = {},
 ): Promise<SeedResult> {
-  const runId = Date.now();
+  const runId = uniqueNow();
   const phone = opts.phone ?? `090${String(runId).slice(-7)}`;
 
   const cRes = await request.post(`${API_BASE}/customers`, {
@@ -171,7 +172,7 @@ test.describe('TC-02: "Huỷ trả máy" cancel button visibility', () => {
     await page.goto(`/orders/${tiepNhanOrderId}`);
 
     // Wait for order to load (status badge must be present)
-    await expect(page.locator('span.bg-blue-100')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('order-status-badge')).toBeVisible({ timeout: 10_000 });
 
     const cancelBtn = page.getByRole('button', { name: 'Huỷ trả máy' });
     await expect(cancelBtn).toHaveCount(0);
@@ -221,7 +222,7 @@ test.describe('TC-03: Clicking "Huỷ trả máy" selects the status without ope
     expect(nativeDialogFired).toBe(false);
 
     // Badge is unchanged — no update has been sent yet
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Trả hàng', { timeout: 5_000 });
 
     // Save stays disabled until both notes and a photo are provided...
@@ -265,7 +266,7 @@ test.describe('TC-04: ConfirmModal "Huỷ" keeps order status unchanged', () => 
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
     // Select HUY_TRA_MAY, fill the required notes + photo evidence, then
@@ -319,7 +320,7 @@ test.describe('TC-05: ConfirmModal "Xác nhận" transitions order to HUY_TRA_MA
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    const badge = page.locator('span.bg-blue-100');
+    const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
     // Select HUY_TRA_MAY, fill the required notes + photo evidence, then

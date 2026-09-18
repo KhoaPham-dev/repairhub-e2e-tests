@@ -18,11 +18,12 @@
  *                (backend must be running feat/multiple-warranty-orders)
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import * as path from 'path';
 import * as fs from 'fs';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const FIXT = (f: string) => path.join(__dirname, 'fixtures', f);
@@ -48,15 +49,8 @@ async function advanceToDelivered(
   orderId: string,
   request: import('@playwright/test').APIRequestContext,
 ) {
-  const statuses = [
-    'DANG_KIEM_TRA',
-    'BAO_GIA',
-    'CHO_LINH_KIEN',
-    'DANG_SUA_CHUA',
-    'KIEM_TRA_LAI',
-    'SUA_XONG',
-    'DA_GIAO',
-  ];
+  // Matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31.
+  const statuses = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
   for (const status of statuses) {
     // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
     // order before the status PUT is accepted (RH: status-change-required-images).
@@ -109,7 +103,7 @@ test.describe('PW-21 Multiple Warranty Orders per Source', () => {
   let bh2Id: string;
   let bh2Code: string;
   let bh3Code: string;
-  const runId = Date.now();
+  const runId = uniqueNow();
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
@@ -148,27 +142,25 @@ test.describe('PW-21 Multiple Warranty Orders per Source', () => {
   });
 
   test.afterAll(async () => {
-    // No cleanup call here — intentionally.
+    // No per-test API cleanup call here — intentionally.
     //
     // This test creates 4 orders for the customer (the source order plus
     // -BH, -BH2, -BH3). orders.customer_id is `REFERENCES customers(id)`
     // with no `ON DELETE CASCADE` (migrations/001_initial_schema.sql), and
     // the backend exposes no order-delete/cancel endpoint (orders.ts only
     // has PATCH /:id and PUT /:id/status) — there is no way to remove the
-    // orders first. So `DELETE /customers/:id` would always fail with a
-    // foreign-key violation once those orders exist; calling it and
-    // swallowing the error (the pattern other specs use) just hides an
-    // always-failing request rather than actually cleaning up.
+    // orders first, so `DELETE /customers/:id` always 409s once they exist
+    // (fix/customer-delete-with-orders) and would do nothing.
     //
-    // The customer and its orders are left behind on purpose. They are
-    // uniquely identifiable for a future DB-level test-data prune by the
-    // runId embedded in the customer phone ("093" + runId suffix) and in
-    // the device name ("Tai nghe PW21-<runId>") — see the console.info
-    // below for the exact values from this run.
+    // The customer is still registered for cleanup though: `request.post`
+    // is wrapped by playwright/helpers/fixtures.ts, which records its id to
+    // the run registry regardless of which spec created it. The DB
+    // teardown in playwright/global-teardown.ts deletes it (and its
+    // orders/images/history) directly via E2E_DATABASE_URL at the end of
+    // the run — see scripts/db-cleanup.js.
     console.info(
-      `[PW-21] leaving test fixtures in place: customerId=${customerId}, ` +
-      `phone=${customerPhone}, sourceOrderCode=${sourceOrderCode} (no order-delete ` +
-      `endpoint / no ON DELETE CASCADE on orders.customer_id)`,
+      `[PW-21] customer registered for DB teardown: customerId=${customerId}, ` +
+      `phone=${customerPhone}, sourceOrderCode=${sourceOrderCode}`,
     );
   });
 

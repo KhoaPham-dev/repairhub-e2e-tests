@@ -14,7 +14,7 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI } from './helpers/auth';
 
 test.describe('PW-06 Dashboard Overview', () => {
@@ -39,16 +39,20 @@ test.describe('PW-06 Dashboard Overview', () => {
     await loginViaUI(page);
     await page.goto('/');
 
-    // "Hôm nay" button should be active (bg-[#004EAB] text-white from SegmentedControl)
+    // "Hôm nay" button should be active (bg-accent text-[#0B0B0B] from SegmentedControl)
     const homNayBtn = page.getByRole('button', { name: 'Hôm nay' });
     await expect(homNayBtn).toBeVisible({ timeout: 10_000 });
-    await expect(homNayBtn).toHaveClass(/bg-\[#004EAB\]/);
-    await expect(homNayBtn).toHaveClass(/text-white/);
+    await expect(homNayBtn).toHaveClass(/bg-accent/);
+    await expect(homNayBtn).toHaveClass(/text-\[#0B0B0B\]/);
 
     // KPI values are rendered as text — they should be numeric strings (including 0)
     // Each KPI card has a <p> with a bold number immediately after the label
-    // We assert the cards exist and contain a text node that parses as a number
-    const kpiCards = page.locator('div.bg-white.rounded-2xl');
+    // We assert the cards exist and contain a text node that parses as a number.
+    // The KPI grid only renders once the status-counts/revenue fetch resolves
+    // (a Spinner shows until then) — wait for a label first so the count
+    // below isn't taken while the loading state is still showing.
+    await expect(page.getByText('Đang xử lý')).toBeVisible({ timeout: 10_000 });
+    const kpiCards = page.locator('div.bg-surface.rounded-2xl');
     const count = await kpiCards.count();
     expect(count).toBeGreaterThanOrEqual(4);
 
@@ -74,16 +78,16 @@ test.describe('PW-06 Dashboard Overview', () => {
     await expect(tuanNayBtn).toBeVisible({ timeout: 10_000 });
 
     // Initially "Tuần này" should NOT be active
-    await expect(tuanNayBtn).not.toHaveClass(/bg-\[#004EAB\]/);
+    await expect(tuanNayBtn).not.toHaveClass(/bg-accent/);
 
     await tuanNayBtn.click();
 
     // After click it becomes active
-    await expect(tuanNayBtn).toHaveClass(/bg-\[#004EAB\]/, { timeout: 4_000 });
-    await expect(tuanNayBtn).toHaveClass(/text-white/);
+    await expect(tuanNayBtn).toHaveClass(/bg-accent/, { timeout: 4_000 });
+    await expect(tuanNayBtn).toHaveClass(/text-\[#0B0B0B\]/);
 
     // "Hôm nay" should no longer be active
-    await expect(page.getByRole('button', { name: 'Hôm nay' })).not.toHaveClass(/bg-\[#004EAB\]/);
+    await expect(page.getByRole('button', { name: 'Hôm nay' })).not.toHaveClass(/bg-accent/);
   });
 
   test('TC-04: clicking "Tháng này" changes the active button styling', async ({ page }) => {
@@ -94,16 +98,16 @@ test.describe('PW-06 Dashboard Overview', () => {
     await expect(thangNayBtn).toBeVisible({ timeout: 10_000 });
 
     // Initially "Tháng này" should NOT be active
-    await expect(thangNayBtn).not.toHaveClass(/bg-\[#004EAB\]/);
+    await expect(thangNayBtn).not.toHaveClass(/bg-accent/);
 
     await thangNayBtn.click();
 
     // After click it becomes active
-    await expect(thangNayBtn).toHaveClass(/bg-\[#004EAB\]/, { timeout: 4_000 });
-    await expect(thangNayBtn).toHaveClass(/text-white/);
+    await expect(thangNayBtn).toHaveClass(/bg-accent/, { timeout: 4_000 });
+    await expect(thangNayBtn).toHaveClass(/text-\[#0B0B0B\]/);
 
     // "Hôm nay" should no longer be active
-    await expect(page.getByRole('button', { name: 'Hôm nay' })).not.toHaveClass(/bg-\[#004EAB\]/);
+    await expect(page.getByRole('button', { name: 'Hôm nay' })).not.toHaveClass(/bg-accent/);
   });
 
   test('TC-05: revenue chart heading "Biểu đồ doanh thu" is visible', async ({ page }) => {

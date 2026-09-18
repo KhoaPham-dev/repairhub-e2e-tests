@@ -17,9 +17,10 @@
  *                backend running at http://localhost:6061
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -46,7 +47,7 @@ async function seedOrder(
   request: import('@playwright/test').APIRequestContext,
   opts: { quotation?: number; phone?: string } = {},
 ): Promise<SeedResult> {
-  const runId = Date.now();
+  const runId = uniqueNow();
   const phone = opts.phone ?? `090${String(runId).slice(-7)}`;
 
   const cRes = await request.post(`${API_BASE}/customers`, {
@@ -106,7 +107,13 @@ async function advanceStatus(
   });
 }
 
-/** Best-effort customer deletion (cascades to orders). */
+/**
+ * Best-effort immediate cleanup for customers with no orders (e.g. an
+ * unused seeded customer). Orders have no DB-level cascade from customers,
+ * so this silently no-ops (409, ignored) once the customer has any orders —
+ * the real cleanup for those happens via the DB teardown registered in
+ * playwright/helpers/fixtures.ts + playwright/global-teardown.ts.
+ */
 async function cleanup(
   token: string,
   request: import('@playwright/test').APIRequestContext,
@@ -175,7 +182,7 @@ test.describe('TC-02: RH-104 — HUY_TRA_MAY order shows read-only Báo giá (AC
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const runId = Date.now();
+    const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       quotation: 280000,
       phone: `091${String(runId + 1).slice(-7)}`,
@@ -217,7 +224,7 @@ test.describe('TC-03: RH-104 — Zero quotation terminal order shows "Chưa có"
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const runId = Date.now();
+    const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       quotation: 0,
       phone: `092${String(runId + 2).slice(-7)}`,
@@ -254,7 +261,7 @@ test.describe('TC-04: RH-104 — Non-terminal order has editable Báo giá input
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const runId = Date.now();
+    const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       quotation: 150000,
       phone: `093${String(runId + 3).slice(-7)}`,
@@ -377,7 +384,7 @@ test.describe('TC-08: RH-105 — Back-navigation preserves filter state (AC-1)',
 
   test.beforeAll(async ({ request }) => {
     token = await apiLogin(request);
-    const runId = Date.now();
+    const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       phone: `094${String(runId + 4).slice(-7)}`,
     }));
