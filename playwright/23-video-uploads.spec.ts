@@ -68,7 +68,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { uniqueNow } from './helpers/ids';
-import { transitionStatus } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const API_ORIGIN = API_BASE.replace(/\/api$/, '');
