@@ -16,7 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { IMAGE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
+import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -96,9 +96,10 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
-  // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the order
-  // before the status PUT is accepted (RH: status-change-required-images).
-  if (IMAGE_REQUIRED_STATUSES.includes(status)) {
+  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
+  // order before the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may).
+  // Notes are always sent below, satisfying the notes half of the rule.
+  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
     await uploadCompletionImage(request, token, orderId);
   }
   await request.put(`${API_BASE}/orders/${orderId}/status`, {
@@ -232,13 +233,10 @@ test.describe('TC-02: Flow 2 — TRA_HANG path from BAO_GIA (RH-30 AC-2)', () =>
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Báo giá', { timeout: 10_000 });
 
-    // Select TRA_HANG — label is "Trả hàng"
+    // Select TRA_HANG — label is "Trả hàng". TRA_HANG no longer requires any
+    // evidence (RH: status-rules-da-giao-huy-tra-may), so Save is enabled
+    // as soon as a status is selected.
     await page.locator('select').selectOption({ label: 'Trả hàng' });
-
-    // TRA_HANG requires a fresh COMPLETION image — attach one via the file
-    // input (RH: status-change-required-images) before Save is enabled.
-    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
-    await expect(page.getByText(/Đã chọn 1 ảnh/)).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
     await expect(page.getByText('Cập nhật thành công')).toBeVisible({ timeout: 10_000 });
@@ -275,8 +273,14 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Select HUY_TRA_MAY and click Save — the app shows a React ConfirmModal
+    // Select HUY_TRA_MAY — it now requires notes + a fresh COMPLETION photo
+    // before Save is enabled (RH: status-rules-da-giao-huy-tra-may).
     await page.locator('select').selectOption({ label: 'Huỷ trả máy' });
+    await page.getByPlaceholder('Thêm ghi chú...').fill('Khách không đồng ý, huỷ đơn');
+    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
+    await expect(page.getByText(/Đã chọn 1 ảnh/)).toBeVisible({ timeout: 5_000 });
+
+    // Click Save — the app shows a React ConfirmModal
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
 
     // Wait for the ConfirmModal to appear and click Huỷ (cancel) — exact: true to
@@ -298,8 +302,14 @@ test.describe('TC-03: HUY_TRA_MAY confirmation dialog (RH-30 AC-3)', () => {
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Select HUY_TRA_MAY and click Save — the app shows a React ConfirmModal
+    // Select HUY_TRA_MAY — it now requires notes + a fresh COMPLETION photo
+    // before Save is enabled (RH: status-rules-da-giao-huy-tra-may).
     await page.locator('select').selectOption({ label: 'Huỷ trả máy' });
+    await page.getByPlaceholder('Thêm ghi chú...').fill('Khách không đồng ý, huỷ đơn');
+    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
+    await expect(page.getByText(/Đã chọn 1 ảnh/)).toBeVisible({ timeout: 5_000 });
+
+    // Click Save — the app shows a React ConfirmModal
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
 
     // Wait for the ConfirmModal to appear and click Xác nhận (confirm)

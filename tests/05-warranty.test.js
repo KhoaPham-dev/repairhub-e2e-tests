@@ -16,7 +16,7 @@
  * to validate warranty lookup on live data.
  */
 
-const { api, login, uploadCompletionImage, IMAGE_REQUIRED_STATUSES } = require('../helpers/api');
+const { api, login, transitionStatus } = require('../helpers/api');
 const {
   ADMIN_CREDS,
   TECH_CREDS,
@@ -74,15 +74,10 @@ beforeAll(async () => {
     'DANG_SUA_CHUA', 'KIEM_TRA_LAI', 'SUA_XONG', 'DA_GIAO',
   ];
   for (const step of steps) {
-    // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the
-    // order before the status PUT is accepted (RH: status-change-required-images).
-    if (IMAGE_REQUIRED_STATUSES.includes(step)) {
-      await uploadCompletionImage(techToken, deliveredOrderId);
-    }
-    await api.put(`/orders/${deliveredOrderId}/status`, {
-      token: techToken,
-      body: { status: step },
-    });
+    // DA_GIAO / HUY_TRA_MAY require non-blank notes and a fresh COMPLETION
+    // image already on the order before the status PUT is accepted
+    // (RH: status-rules-da-giao-huy-tra-may) — transitionStatus() handles both.
+    await transitionStatus(techToken, deliveredOrderId, step);
   }
 });
 

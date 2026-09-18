@@ -27,7 +27,7 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { IMAGE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const DB_URL =
@@ -128,9 +128,10 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
-  // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the order
-  // before the status PUT is accepted (RH: status-change-required-images).
-  if (IMAGE_REQUIRED_STATUSES.includes(status)) {
+  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
+  // order before the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may).
+  // Notes are always sent below, satisfying the notes half of the rule.
+  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
     await uploadCompletionImage(request, token, orderId);
   }
   await request.put(`${API_BASE}/orders/${orderId}/status`, {

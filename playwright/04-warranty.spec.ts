@@ -20,7 +20,7 @@
 
 import { test, expect, Page } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { IMAGE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -48,9 +48,9 @@ async function advanceToDelivered(
     'DA_GIAO',
   ];
   for (const status of statuses) {
-    // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the
+    // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
     // order before the status PUT is accepted (RH: status-change-required-images).
-    if (IMAGE_REQUIRED_STATUSES.includes(status)) {
+    if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
       await uploadCompletionImage(request, token, orderId);
     }
     await request.put(`${API_BASE}/orders/${orderId}/status`, {

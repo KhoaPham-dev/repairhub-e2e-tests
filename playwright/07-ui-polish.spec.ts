@@ -4,7 +4,9 @@
  * Covers the UI polish changes:
  *   TC-01: DANG_BAO_HANH filter tab — "Đang bảo hành" tab is visible in orders list
  *   TC-02: TRA_HANG cancel button — visible only when order.status === 'TRA_HANG'
- *   TC-03: Clicking cancel button opens ConfirmModal (not a browser dialog)
+ *   TC-03: Clicking the cancel button selects HUY_TRA_MAY and scrolls to the
+ *          evidence (notes + photo) section, without opening the ConfirmModal
+ *          or a native browser dialog (RH: status-rules-da-giao-huy-tra-may)
  *   TC-04: ConfirmModal cancel keeps status unchanged
  *   TC-05: ConfirmModal confirm transitions order to HUY_TRA_MAY
  *
@@ -14,7 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { IMAGE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -88,9 +90,10 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
-  // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the order
-  // before the status PUT is accepted (RH: status-change-required-images).
-  if (IMAGE_REQUIRED_STATUSES.includes(status)) {
+  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
+  // order before the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may).
+  // Notes are always sent below, satisfying the notes half of the rule.
+  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
     await uploadCompletionImage(request, token, orderId);
   }
   await request.put(`${API_BASE}/orders/${orderId}/status`, {
@@ -179,7 +182,7 @@ test.describe('TC-02: "Huỷ trả máy" cancel button visibility', () => {
 // TC-03: Clicking cancel button opens ConfirmModal (no browser dialog)
 // ---------------------------------------------------------------------------
 
-test.describe('TC-03: Clicking "Huỷ trả máy" opens ConfirmModal, not a browser dialog', () => {
+test.describe('TC-03: Clicking "Huỷ trả máy" selects the status without opening a dialog', () => {
   let token: string;
   let orderId: string;
   let customerId: string;
@@ -196,7 +199,7 @@ test.describe('TC-03: Clicking "Huỷ trả máy" opens ConfirmModal, not a brow
     await cleanup(token, request, customerId);
   });
 
-  test('ConfirmModal appears with "Xác nhận" button; no native browser dialog fires', async ({ page }) => {
+  test('selects HUY_TRA_MAY and scrolls to evidence fields; no modal or native dialog until Save', async ({ page }) => {
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
@@ -208,11 +211,31 @@ test.describe('TC-03: Clicking "Huỷ trả máy" opens ConfirmModal, not a brow
     await expect(cancelBtn).toBeVisible({ timeout: 10_000 });
     await cancelBtn.click();
 
-    // The custom ConfirmModal must appear — it contains an "Xác nhận" button
+    // RH: status-rules-da-giao-huy-tra-may — the shortcut now only selects
+    // HUY_TRA_MAY and scrolls the notes/photo evidence section into view; it
+    // no longer jumps straight to the ConfirmModal (which would always fail
+    // without evidence).
+    await expect(page.locator('select')).toHaveValue('HUY_TRA_MAY');
+    await expect(page.getByRole('button', { name: 'Xác nhận' })).toHaveCount(0);
+    await expect(page.getByPlaceholder('Thêm ghi chú...')).toBeInViewport();
+    expect(nativeDialogFired).toBe(false);
+
+    // Badge is unchanged — no update has been sent yet
+    const badge = page.locator('span.bg-blue-100');
+    await expect(badge).toContainText('Trả hàng', { timeout: 5_000 });
+
+    // Save stays disabled until both notes and a photo are provided...
+    const saveButton = page.getByRole('button', { name: /Lưu thay đổi/i });
+    await expect(saveButton).toBeDisabled();
+
+    // ...then Save opens the ConfirmModal, same as before.
+    await page.getByPlaceholder('Thêm ghi chú...').fill('Khách không đồng ý, huỷ đơn');
+    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+
     const confirmBtn = page.getByRole('button', { name: 'Xác nhận' });
     await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
-
-    // No native browser dialog should have been triggered
     expect(nativeDialogFired).toBe(false);
   });
 });
@@ -245,10 +268,15 @@ test.describe('TC-04: ConfirmModal "Huỷ" keeps order status unchanged', () => 
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Open modal
+    // Select HUY_TRA_MAY, fill the required notes + photo evidence, then
+    // Save to open the modal (RH: status-rules-da-giao-huy-tra-may).
     const cancelBtn = page.getByRole('button', { name: 'Huỷ trả máy' });
     await expect(cancelBtn).toBeVisible({ timeout: 10_000 });
     await cancelBtn.click();
+    await page.getByPlaceholder('Thêm ghi chú...').fill('Khách không đồng ý, huỷ đơn');
+    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
+    await expect(page.getByRole('button', { name: /Lưu thay đổi/i })).toBeEnabled();
+    await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
 
     // Modal is open — click the "Huỷ" dismiss button
     const dismissBtn = page.getByRole('button', { name: 'Huỷ' }).last();
@@ -294,10 +322,15 @@ test.describe('TC-05: ConfirmModal "Xác nhận" transitions order to HUY_TRA_MA
     const badge = page.locator('span.bg-blue-100');
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });
 
-    // Open the ConfirmModal via the cancel button
+    // Select HUY_TRA_MAY, fill the required notes + photo evidence, then
+    // Save to open the modal (RH: status-rules-da-giao-huy-tra-may).
     const cancelBtn = page.getByRole('button', { name: 'Huỷ trả máy' });
     await expect(cancelBtn).toBeVisible({ timeout: 10_000 });
     await cancelBtn.click();
+    await page.getByPlaceholder('Thêm ghi chú...').fill('Khách không đồng ý, huỷ đơn');
+    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
+    await expect(page.getByRole('button', { name: /Lưu thay đổi/i })).toBeEnabled();
+    await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
 
     // Click the red "Xác nhận" button inside the modal
     const confirmBtn = page.getByRole('button', { name: 'Xác nhận' });

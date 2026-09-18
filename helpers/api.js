@@ -86,14 +86,16 @@ function buildImageFormData(imageType = 'INTAKE') {
 }
 
 /**
- * Statuses that require a fresh COMPLETION photo (uploaded after the order's
- * most recent status change) before the transition is accepted. Mirrors
- * IMAGE_REQUIRED_STATUSES in the backend's PUT /orders/:id/status handler.
+ * Statuses that require both non-blank notes and a fresh COMPLETION photo
+ * (uploaded after the order's most recent REAL status transition) before
+ * the transition is accepted. Mirrors EVIDENCE_REQUIRED_STATUSES in the
+ * backend's PUT /orders/:id/status handler. TRA_HANG no longer requires
+ * either — only DA_GIAO and HUY_TRA_MAY do.
  */
-const IMAGE_REQUIRED_STATUSES = ['DA_GIAO', 'TRA_HANG'];
+const EVIDENCE_REQUIRED_STATUSES = ['DA_GIAO', 'HUY_TRA_MAY'];
 
 /**
- * Upload a COMPLETION image to an order so a subsequent DA_GIAO / TRA_HANG
+ * Upload a COMPLETION image to an order so a subsequent DA_GIAO / HUY_TRA_MAY
  * status transition satisfies the fresh-image requirement. Throws if the
  * upload itself fails, so callers get a clear error instead of a confusing
  * downstream 400 on the status PUT.
@@ -112,12 +114,27 @@ async function uploadCompletionImage(token, orderId) {
   return body;
 }
 
+/**
+ * Transition an order to `status`, automatically satisfying the evidence
+ * requirement (non-blank notes + fresh COMPLETION photo) when `status` is
+ * DA_GIAO or HUY_TRA_MAY. Use this instead of a bare `api.put(.../status)`
+ * call when a test doesn't need to exercise the evidence rule itself.
+ */
+async function transitionStatus(token, orderId, status, opts = {}) {
+  const notes = opts.notes ?? `E2E transition to ${status}`;
+  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
+    await uploadCompletionImage(token, orderId);
+  }
+  return api.put(`/orders/${orderId}/status`, { token, body: { status, notes } });
+}
+
 module.exports = {
   api,
   login,
   createDummyImageBuffer,
   buildImageFormData,
   uploadCompletionImage,
-  IMAGE_REQUIRED_STATUSES,
+  transitionStatus,
+  EVIDENCE_REQUIRED_STATUSES,
   BASE_URL,
 };
