@@ -16,11 +16,17 @@
  *   - a WebP named .jpg is renamed and stored as .webp;
  *   - a HEIC named .jpg is converted (as HEIC always is) and stored as .jpg;
  *   - a legacy QuickTime .mov with no ftyp box (first top-level atom is
- *     wide/mdat/moov/free/skip/pnot instead) is accepted as video/quicktime.
+ *     wide/mdat/moov/free/skip/pnot instead) is accepted as video/quicktime
+ *     — but ONLY once isLegacyQuickTimeFile (backend 0ba0609) has walked up
+ *     to 4 real top-level atoms on disk and found a structurally valid moov
+ *     or mdat among them; a bare atom-name match at bytes 4-8 with garbage
+ *     after it (e.g. a "wide" header over HTML) is NOT enough on its own —
+ *     see TC-WIDE-SPOOF.
  * AVIF is still rejected (it shares HEIC's ISO-BMFF brand family but isn't
  * an allowed type) — as are HTML/SVG/PDF/etc. The rejection message now
  * echoes the sanitised original filename: "Nội dung tệp không khớp định
- * dạng: <name>", so the user can tell which file was rejected.
+ * dạng: <name>", so the user can tell which file was rejected. Every
+ * accepted upload is served with X-Content-Type-Options: nosniff.
  * The 10MB image-size limit applies by the DETECTED kind, not the declared one.
  *
  * Fixture generation (all real, tiny, committed — see git log for exact
@@ -34,7 +40,8 @@
  * (ffmpeg + libsvtav1, `-f avif`).
  *
  * Test cases:
- *   API (looped across both POST /:id/images and POST /bulk-with-images):
+ *   API (looped across both POST /:id/images and POST /bulk-with-images;
+ *   each accepted upload also checked for X-Content-Type-Options: nosniff):
  *     - photo-png.jpg accepted, stored as .png, served with Content-Type image/png
  *     - photo-webp.jpg accepted, stored as .webp, served with Content-Type image/webp
  *     - photo-heic.jpg accepted, converted, stored as .jpg, served with Content-Type image/jpeg
@@ -44,6 +51,9 @@
  *            though it shares HEIC's ISO-BMFF brand family)
  *   TC-HTML: HTML content named "note.mp4" is rejected with 400, and the
  *            message contains the filename
+ *   TC-WIDE-SPOOF: `00 00 00 08 "wide"` followed by HTML, named "evil.mov"
+ *            → 400 with the filename in the message, uploads dir keeps
+ *            nothing — the atom-name match alone must not be enough
  *   UI:
  *     TC-UI: the user's exact scenario — new-order page, PNG-renamed-.jpg
  *            photo + the legacy .mov together → order created
@@ -54,9 +64,11 @@
  */
 
 import { test, expect } from './helpers/fixtures';
+import * as fs from 'fs';
 import * as path from 'path';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { uniqueNow } from './helpers/ids';
+import { watchUploads, findSurvivingUploads, sha256Hex } from './helpers/uploads';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const API_ORIGIN = API_BASE.replace(/\/api$/, '');
@@ -143,7 +155,7 @@ async function uploadImage(
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
       image_type: 'INTAKE',
-      images: { name: fixture.file, mimeType: fixture.declaredMime, buffer: require('fs').readFileSync(FIXT(fixture.file)) },
+      images: { name: fixture.file, mimeType: fixture.declaredMime, buffer: fs.readFileSync(FIXT(fixture.file)) },
     },
   });
 }
@@ -164,7 +176,7 @@ async function uploadBulk(
         branch_id: branchId,
         products: [{ product_type: 'SPEAKER', device_name: deviceName, fault_description: 'content detection test' }],
       }),
-      images_0: { name: fixture.file, mimeType: fixture.declaredMime, buffer: require('fs').readFileSync(FIXT(fixture.file)) },
+      images_0: { name: fixture.file, mimeType: fixture.declaredMime, buffer: fs.readFileSync(FIXT(fixture.file)) },
     },
   });
 }
@@ -177,6 +189,11 @@ async function assertServedWithContentType(
   const res = await request.get(`${API_ORIGIN}/uploads/${storedPath}`);
   expect(res.status()).toBe(200);
   expect(res.headers()['content-type']).toContain(expectedContentType);
+  // Every /uploads response — not just video — carries the MIME-sniffing
+  // guard (see 23-video-uploads.spec.ts TC-15); checked here too so every
+  // accepted upload in this spec (all 5 content-detection fixtures, across
+  // both routes) is covered, not just one hand-picked case.
+  expect(res.headers()['x-content-type-options']).toBe('nosniff');
 }
 
 test.describe('PW-25 API — real content is detected regardless of declared mimetype/extension', () => {
@@ -251,6 +268,37 @@ test.describe('PW-25 API — real content is detected regardless of declared mim
     const body = await res.json();
     expect(body.error).toContain(CONTENT_MISMATCH_MSG);
     expect(body.error).toContain('note.mp4');
+
+    await cleanup(token, request, customerId);
+  });
+
+  test('TC-WIDE-SPOOF: a bare "wide" atom name over HTML content is rejected, not waved through as legacy QuickTime', async ({ request }) => {
+    const { orderId, customerId } = await seedOrder(token, request);
+
+    // Exactly the spoofing shape the hardened legacy-QuickTime detection
+    // (isLegacyQuickTimeFile, backend 0ba0609) exists to reject: bytes 4-8
+    // spell a recognized atom name ("wide") with a declared size of 8 (i.e.
+    // no payload — the header IS the whole atom), but what follows isn't a
+    // real QuickTime atom structure containing moov/mdat at all — it's HTML.
+    const evil = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x08]),
+      Buffer.from('wide', 'ascii'),
+      Buffer.from('<!DOCTYPE html><html><body>evil</body></html>', 'ascii'),
+    ]);
+    const watch = watchUploads();
+    const res = await request.post(`${API_BASE}/orders/${orderId}/images`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        image_type: 'INTAKE',
+        images: { name: 'evil.mov', mimeType: 'video/quicktime', buffer: evil },
+      },
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe(`${CONTENT_MISMATCH_MSG}: evil.mov`);
+
+    const survivors = findSurvivingUploads(watch, [{ size: evil.length, sha256: sha256Hex(evil) }]);
+    expect(survivors, 'uploads dir must not keep a rejected wide-atom-spoofed file').toEqual([]);
 
     await cleanup(token, request, customerId);
   });

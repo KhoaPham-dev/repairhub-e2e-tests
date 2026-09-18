@@ -66,10 +66,12 @@
  */
 
 import { test, expect } from './helpers/fixtures';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { uniqueNow } from './helpers/ids';
+import { watchUploads, findSurvivingUploads, sha256Hex } from './helpers/uploads';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const API_ORIGIN = API_BASE.replace(/\/api$/, '');
@@ -91,8 +93,32 @@ const WEBM_BUFFER = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x00, 0x00, 0x00]
 // carry a valid magic-byte header, so they exercise the SIZE rule (checked
 // before the SIGNATURE rule) rather than the content-mismatch rule.
 const PNG_HEADER = Buffer.from('89504e470d0a1a0a', 'hex');
+// A random 16-byte tag right after the header (before the zero padding)
+// makes every call's content unique — TC-08 and TC-10 both build an 11MB
+// buffer, and under parallel workers a leftover-upload check (see
+// helpers/uploads.ts) needs to tell "my own payload" apart from another
+// concurrent test's, even one with the exact same nominal size.
 function oversizedImageBuffer(totalBytes: number): Buffer {
-  return Buffer.concat([PNG_HEADER, Buffer.alloc(totalBytes - PNG_HEADER.length, 0x00)]);
+  const tag = crypto.randomBytes(16);
+  return Buffer.concat([PNG_HEADER, tag, Buffer.alloc(totalBytes - PNG_HEADER.length - tag.length, 0x00)]);
+}
+
+// A minimal-but-valid MP4 ftyp box (major brand "isom", not heic/qt/avif)
+// with a random unique tail appended after the box's own declared size —
+// detectMediaType only reads within the declared size, so the tail doesn't
+// affect detection, it just makes the whole buffer content-unique. Used
+// instead of the shared MP4_FIXTURE/MP4_BUFFER wherever a test's file must
+// look like a real (small) video but must NOT be able to collide with any
+// of the many OTHER tests in this spec that successfully (and permanently)
+// upload that exact same fixture content.
+function uniqueValidMp4Buffer(): Buffer {
+  const ftypBox = Buffer.concat([
+    Buffer.from([0x00, 0x00, 0x00, 0x10]), // box size = 16
+    Buffer.from('ftyp', 'ascii'),
+    Buffer.from('isom', 'ascii'), // major brand
+    Buffer.from([0x00, 0x00, 0x00, 0x00]), // minor version
+  ]);
+  return Buffer.concat([ftypBox, crypto.randomBytes(32)]);
 }
 
 const INVALID_TYPE_MSG = 'Định dạng tệp không hợp lệ';
@@ -104,20 +130,6 @@ const TOO_MANY_FILES_MSG_UI = 'Quá nhiều tệp trong một lần tải lên (
 const IMAGES_MAX_FILES = 20;
 const NOTES_MSG = 'Vui lòng nhập ghi chú khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
 const PHOTO_OR_VIDEO_MSG = 'Vui lòng tải ảnh hoặc video khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
-
-// The backend's uploads dir, as a sibling repo checkout — same convention as
-// 12-order-priority-sort.spec.ts's direct-psql REPAIRHUB_DATABASE_URL default:
-// these specs assume a local dev checkout with both repos side by side.
-const UPLOADS_DIR = process.env.REPAIRHUB_UPLOADS_DIR
-  ?? path.join(__dirname, '..', '..', 'repairhub-backend', 'uploads');
-
-function countUploadedFiles(): number {
-  try {
-    return fs.readdirSync(UPLOADS_DIR).length;
-  } catch {
-    return -1; // uploads dir not reachable locally — callers skip the assertion
-  }
-}
 
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {
   const res = await request.post(`${API_BASE}/auth/login`, {
@@ -328,30 +340,38 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
   test('TC-08: an 11MB image is rejected (400) and leaves no new file on disk', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const before = countUploadedFiles();
 
     // Starts with a valid PNG magic-byte header (see oversizedImageBuffer) so
     // this exercises the SIZE rule, not the signature-mismatch rule — the
     // backend checks size across all files before it checks any signature.
     const bigImage = oversizedImageBuffer(11 * 1024 * 1024);
+    const watch = watchUploads();
     const res = await uploadToOrder(request, token, orderId, { name: 'huge.png', mimeType: 'image/png', buffer: bigImage });
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(body.error).toBe(IMAGE_TOO_LARGE_MSG);
 
-    const after = countUploadedFiles();
-    if (before >= 0 && after >= 0) {
-      expect(after, 'uploads dir must not grow from a rejected oversized image').toBe(before);
-    }
+    const survivors = findSurvivingUploads(watch, [{ size: bigImage.length, sha256: sha256Hex(bigImage) }]);
+    expect(survivors, 'uploads dir must not grow from a rejected oversized image').toEqual([]);
 
     await cleanup(token, request, customerId);
   });
 
   test('TC-09: a 101MB video is rejected and leaves no new file on disk', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const before = countUploadedFiles();
 
-    const bigVideo = Buffer.alloc(101 * 1024 * 1024, 0x43);
+    // A random 32-byte prefix — multer writes a file sequentially from the
+    // start, and its own fileSize limit aborts the write mid-stream, so a
+    // leftover here would be a PARTIAL, non-deterministic-size file that
+    // still begins with these exact bytes. Under --repeat-each/parallel
+    // workers, more than one instance of THIS SAME test can be uploading a
+    // ~100MB file at once — a plain size threshold alone can't tell them
+    // apart (and did, in practice, false-positive on a concurrent sibling
+    // run's own in-flight upload before this prefix check was added) — the
+    // random prefix is what makes each run's own leftover unmistakable.
+    const prefix = crypto.randomBytes(32);
+    const bigVideo = Buffer.concat([prefix, Buffer.alloc(101 * 1024 * 1024 - prefix.length, 0x43)]);
+    const watch = watchUploads();
     const res = await uploadToOrder(request, token, orderId, { name: 'huge.mp4', mimeType: 'video/mp4', buffer: bigVideo });
     // multer's fileSize limit fires mid-parse — errorHandler.ts maps
     // LIMIT_FILE_SIZE to 413 with the combined image/video guidance message.
@@ -359,29 +379,41 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const body = await res.json();
     expect(body.error).toBe(FILE_TOO_LARGE_MSG);
 
-    const after = countUploadedFiles();
-    if (before >= 0 && after >= 0) {
-      expect(after, 'uploads dir must not grow from a rejected oversized video').toBe(before);
-    }
+    // No legitimate fixture in this suite is anywhere near 50MB, so the
+    // minSize threshold alone can't collide with anything else; the prefix
+    // additionally rules out a concurrent sibling run of this exact test.
+    const survivors = findSurvivingUploads(watch, [{ minSize: 50 * 1024 * 1024, prefix }]);
+    expect(survivors, 'uploads dir must not grow from a rejected oversized video').toEqual([]);
 
     await cleanup(token, request, customerId);
   });
 
   test('TC-10: a mixed request (valid video + oversized image) is rejected with no rows or files created', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const before = countUploadedFiles();
 
     // Starts with a valid PNG header — see oversizedImageBuffer — so this
     // still exercises the SIZE rule even though the signature check now runs.
     const bigImage = oversizedImageBuffer(11 * 1024 * 1024);
+    // A small-but-valid, content-unique "video" (see uniqueValidMp4Buffer) —
+    // NOT the shared MP4_BUFFER fixture, which many other tests in this file
+    // upload successfully (and permanently); reusing it here would make a
+    // leftover-upload check below prone to false positives from those
+    // unrelated, legitimately-kept files under parallel workers. It must
+    // still carry a genuinely valid ftyp box: detectMediaType() is now
+    // checked per-file IN ORDER (see orders.ts validateUploadedFiles), and
+    // this video is appended to the request BEFORE the oversized image, so
+    // it has to pass detection itself before the loop ever reaches (and
+    // rejects) the image.
+    const video = uniqueValidMp4Buffer();
     // Two files under the SAME "images" field name (multer's upload.array('images'))
     // can't be expressed with Playwright's plain-object `multipart` shorthand
     // (it's a flat record — one value per key), so build it with the
     // web-standard FormData/File globals (built into Node 18+) instead.
     const form = new FormData();
     form.set('image_type', 'INTAKE');
-    form.append('images', new File([MP4_BUFFER], 'clip.mp4', { type: 'video/mp4' }));
+    form.append('images', new File([video], 'clip.mp4', { type: 'video/mp4' }));
     form.append('images', new File([bigImage], 'huge.png', { type: 'image/png' }));
+    const watch = watchUploads();
     const res = await request.post(`${API_BASE}/orders/${orderId}/images`, {
       headers: { Authorization: `Bearer ${token}` },
       multipart: form,
@@ -395,10 +427,11 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const images = (await detailRes.json()).data.images as unknown[];
     expect(images.length, 'no images/videos persisted from a rejected mixed request').toBe(0);
 
-    const after = countUploadedFiles();
-    if (before >= 0 && after >= 0) {
-      expect(after, 'uploads dir must not grow from a rejected mixed request').toBe(before);
-    }
+    const survivors = findSurvivingUploads(watch, [
+      { size: video.length, sha256: sha256Hex(video) },
+      { size: bigImage.length, sha256: sha256Hex(bigImage) },
+    ]);
+    expect(survivors, 'uploads dir must not grow from a rejected mixed request').toEqual([]);
 
     await cleanup(token, request, customerId);
   });
@@ -423,9 +456,12 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
   test('TC-12: HTML declared as video/mp4 is rejected as a content mismatch', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const before = countUploadedFiles();
 
-    const html = Buffer.from('<!DOCTYPE html><html><body>not a video</body></html>');
+    // A unique per-run tag — this literal HTML string isn't reused
+    // byte-for-byte by any other spec today, but tagging it removes any
+    // future risk of a leftover-upload false positive if it ever is.
+    const html = Buffer.from(`<!DOCTYPE html><html><body>not a video ${uniqueNow()}</body></html>`);
+    const watch = watchUploads();
     const res = await uploadToOrder(request, token, orderId, { name: 'fake.mp4', mimeType: 'video/mp4', buffer: html });
     expect(res.status()).toBe(400);
     const body = await res.json();
@@ -433,10 +469,8 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     // can tell which file was rejected (fix/upload-content-detection).
     expect(body.error).toBe(`${CONTENT_MISMATCH_MSG}: fake.mp4`);
 
-    const after = countUploadedFiles();
-    if (before >= 0 && after >= 0) {
-      expect(after, 'uploads dir must not grow from a content-mismatch rejection').toBe(before);
-    }
+    const survivors = findSurvivingUploads(watch, [{ size: html.length, sha256: sha256Hex(html) }]);
+    expect(survivors, 'uploads dir must not grow from a content-mismatch rejection').toEqual([]);
 
     await cleanup(token, request, customerId);
   });
@@ -471,14 +505,20 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
   test('TC-14: 21 files to POST /:id/images is rejected with the file-count cap and leaves no files behind', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const before = countUploadedFiles();
 
-    const jpegBuffer = fs.readFileSync(FIXT('img-a1.jpg'));
+    // A real JPEG header (so it would pass signature detection too, if this
+    // request ever got that far) plus a unique per-run tag appended after
+    // it — img-a1.jpg's own bytes are uploaded and permanently kept by
+    // several OTHER tests across this suite, so reusing them verbatim here
+    // would make the leftover-upload check below prone to false positives
+    // under parallel workers.
+    const jpegBuffer = Buffer.concat([fs.readFileSync(FIXT('img-a1.jpg')), Buffer.from(uniqueNow())]);
     const form = new FormData();
     form.set('image_type', 'INTAKE');
     for (let i = 0; i < IMAGES_MAX_FILES + 1; i += 1) {
       form.append('images', new File([jpegBuffer], `p${i}.jpg`, { type: 'image/jpeg' }));
     }
+    const watch = watchUploads();
     const res = await request.post(`${API_BASE}/orders/${orderId}/images`, {
       headers: { Authorization: `Bearer ${token}` },
       multipart: form,
@@ -487,10 +527,10 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const body = await res.json();
     expect(body.error).toBe(TOO_MANY_FILES_MSG);
 
-    const after = countUploadedFiles();
-    if (before >= 0 && after >= 0) {
-      expect(after, 'uploads dir must not grow from a rejected over-the-cap request').toBe(before);
-    }
+    // All 21 attached copies are byte-identical, so one expected-upload
+    // entry covers all of them — any that survived would match it.
+    const survivors = findSurvivingUploads(watch, [{ size: jpegBuffer.length, sha256: sha256Hex(jpegBuffer) }]);
+    expect(survivors, 'uploads dir must not grow from a rejected over-the-cap request').toEqual([]);
 
     await cleanup(token, request, customerId);
   });
@@ -511,25 +551,29 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
   test('TC-16: warranty-claim with a valid MP4 but a non-existent source_order_id returns 404 and leaves no file on disk', async ({ request }) => {
     const branchId = (await (await request.get(`${API_BASE}/branches`, { headers: { Authorization: `Bearer ${token}` } })).json()).data[0].id;
-    const before = countUploadedFiles();
 
+    // This 404 path returns before validateUploadedFiles/content-detection
+    // ever runs (see orders.ts's warranty-claim handler), so the buffer's
+    // content doesn't need to look like a real video at all here — just
+    // unique, so it can't collide with the many OTHER tests in this file
+    // that successfully (and permanently) upload the real MP4_BUFFER fixture.
+    const video = uniqueValidMp4Buffer();
+    const watch = watchUploads();
     const res = await request.post(`${API_BASE}/orders/warranty-claim`, {
       headers: { Authorization: `Bearer ${token}` },
       multipart: {
         source_order_id: '00000000-0000-0000-0000-000000000000',
         branch_id: branchId,
         fault_description: 'PW-23 warranty non-existent-source test',
-        images_1: { name: 'clip.mp4', mimeType: 'video/mp4', buffer: MP4_BUFFER },
+        images_1: { name: 'clip.mp4', mimeType: 'video/mp4', buffer: video },
       },
     });
     expect(res.status()).toBe(404);
     const body = await res.json();
     expect(body.error).toBe('Không tìm thấy đơn gốc');
 
-    const after = countUploadedFiles();
-    if (before >= 0 && after >= 0) {
-      expect(after, 'uploads dir must not grow — the already-written file is discarded on the 404 path').toBe(before);
-    }
+    const survivors = findSurvivingUploads(watch, [{ size: video.length, sha256: sha256Hex(video) }]);
+    expect(survivors, 'uploads dir must not grow — the already-written file is discarded on the 404 path').toEqual([]);
   });
 });
 
