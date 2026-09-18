@@ -7,6 +7,12 @@
  * StreamableHTTPClientTransport (not raw HTTP) for every tool-call
  * assertion, that proxies to repairhub-backend's Agent API.
  *
+ * Also covers the security-review follow-up (MCP ea9a699): all 4 tools
+ * carry { readOnlyHint: true, openWorldHint: false } annotations; xem_anh
+ * rejects a DOUBLE-percent-encoded traversal URL (%252e%252e), not just a
+ * single-encoded one; and TRUST_CLOUDFLARE_IP=false (the default) means a
+ * spoofed CF-Connecting-IP per request can't escape the per-IP rate limit.
+ *
  * Prerequisites:
  *   - backend running at http://localhost:6061 with AGENT_API_KEY /
  *     PUBLIC_MEDIA_BASE_URL set (same as 26-agent-api.spec.ts).
@@ -122,6 +128,11 @@ function toolTextJson(result: { content: Array<{ type: string; text?: string }> 
   return textBlock?.text ? JSON.parse(textBlock.text) : undefined;
 }
 
+function isRateLimitError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('429') || /too many/i.test(message);
+}
+
 // ---------------------------------------------------------------------------
 
 test.describe('PW-27 MCP server', () => {
@@ -185,7 +196,7 @@ test.describe('PW-27 MCP server', () => {
   // listTools
   // ---------------------------------------------------------------------
 
-  test('listTools returns exactly the 4 tools, with Vietnamese descriptions, via both auth modes', async () => {
+  test('listTools returns exactly the 4 tools, with Vietnamese descriptions and readOnlyHint, via both auth modes', async () => {
     const clientA = await connectViaPathToken(MCP_ACCESS_TOKEN);
     const { tools: toolsA } = await clientA.listTools();
     expect(toolsA.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOLS].sort());
@@ -194,6 +205,9 @@ test.describe('PW-27 MCP server', () => {
       expect(t.description!.length).toBeGreaterThan(10);
       // Vietnamese text — contains at least one diacritic-bearing character.
       expect(t.description).toMatch(/[àáảãạăằắẳẵặâầấẩẫậđèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ]/i);
+      // All 4 tools are read-only, GET-equivalent calls (backend ea9a699).
+      expect(t.annotations?.readOnlyHint, t.name).toBe(true);
+      expect(t.annotations?.openWorldHint, t.name).toBe(false);
     }
     await clientA.close();
 
@@ -323,6 +337,18 @@ test.describe('PW-27 MCP server', () => {
       expect(result.isError).toBe(true);
     });
 
+    // Backend ea9a699 hardened containsPathTraversal to decode multiple
+    // rounds — a single-pass decode would only reveal "%2e%2e" (still not
+    // literal ".."), letting this through; the multi-round check decodes
+    // that again into "..", correctly catching it.
+    test('xem_anh on a DOUBLE percent-encoded traversal URL (%252e%252e) returns a tool error', async () => {
+      const result = await client.callTool({
+        name: 'xem_anh',
+        arguments: { media_url: 'http://localhost:6061/uploads/%252e%252e/%252e%252e/etc/passwd', kind: 'photo' },
+      });
+      expect(result.isError).toBe(true);
+    });
+
     test('no customer data appears in any tool output', async ({ request }) => {
       const distinctiveName = `KHACHPIIMCP-${uniqueNow()}`;
       const distinctivePhone = `097${uniqueNow().slice(-7)}`;
@@ -370,11 +396,6 @@ test.describe('PW-27 MCP server', () => {
     }
     const lowLimitBase = `http://localhost:${port}`;
 
-    function isRateLimitError(err: unknown): boolean {
-      const message = err instanceof Error ? err.message : String(err);
-      return message.includes('429') || /too many/i.test(message);
-    }
-
     let sawRateLimit = false;
     // The low-rate-limit MCP instance's per-token window is shared across
     // however many times this test (or a prior run of this same spec) has
@@ -398,5 +419,45 @@ test.describe('PW-27 MCP server', () => {
       }
     }
     expect(sawRateLimit, 'expected at least one call to be rejected with 429 once the low configured token limit was exceeded').toBe(true);
+  });
+
+  // Backend ea9a699: CF-Connecting-IP is only trusted when TRUST_CLOUDFLARE_IP=true
+  // (default false). The low-rate-limit instance is started WITHOUT that
+  // flag, so a different spoofed CF-Connecting-IP per request must NOT get
+  // its own bucket — every request here shares the same real (loopback)
+  // req.ip and should trip the per-IP limit exactly as if no header were
+  // sent at all.
+  test('TRUST_CLOUDFLARE_IP off (default): a spoofed CF-Connecting-IP does not escape the per-IP rate limit', async () => {
+    const port = process.env.E2E_MCP_LOW_RATE_LIMIT_PORT;
+    if (!port) {
+      test.skip(true, 'E2E_MCP_LOW_RATE_LIMIT_PORT not set — no low-rate-limit MCP instance running for this check');
+      return;
+    }
+    const lowLimitBase = `http://localhost:${port}`;
+
+    let sawRateLimit = false;
+    for (let i = 0; i < 10 && !sawRateLimit; i++) {
+      const transport = new StreamableHTTPClientTransport(new URL(`${lowLimitBase}/mcp`), {
+        requestInit: {
+          headers: {
+            Authorization: `Bearer ${MCP_ACCESS_TOKEN}`,
+            // A DIFFERENT declared IP on every request — if the server
+            // trusted this header, each would land in its own bucket and
+            // the limit would never trip. It must be ignored.
+            'CF-Connecting-IP': `10.0.${i}.${i}`,
+          },
+        },
+      });
+      const ipClient = new Client({ name: 'e2e-pw27-cfip-client', version: '1.0.0' });
+      try {
+        await ipClient.connect(transport);
+        await ipClient.listTools();
+      } catch (err) {
+        if (isRateLimitError(err)) sawRateLimit = true;
+      } finally {
+        await ipClient.close().catch(() => null);
+      }
+    }
+    expect(sawRateLimit, 'a spoofed CF-Connecting-IP must not bypass the per-IP rate limit when TRUST_CLOUDFLARE_IP is off').toBe(true);
   });
 });

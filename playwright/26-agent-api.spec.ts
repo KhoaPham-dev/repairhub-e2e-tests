@@ -26,6 +26,12 @@
  *         variety guard + backfill; exclusions (status, no-media);
  *         activity rules (created/status-change/media count, notes-only
  *         doesn't); date-window edges; limit clamping; invalid date 400.
+ *   Security (backend 9bf41c7 — NFR-08.4/08.5): fully-spaced phone digits
+ *         are masked too; the failed-auth rate limiter 429s a bad key on a
+ *         low-limit instance, and good-key traffic there is governed by
+ *         the separate, much higher global limit, not the low one; a request
+ *         produces one structured "[agent-api]" stdout line and the key
+ *         is never logged (captured from a spawned throwaway instance).
  *   Disabled mode: a second backend instance started without
  *         AGENT_API_KEY/PUBLIC_MEDIA_BASE_URL -> every route 404.
  *
@@ -36,6 +42,8 @@
 
 import { test, expect } from './helpers/fixtures';
 import { Client } from 'pg';
+import * as path from 'path';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { uniqueNow } from './helpers/ids';
 import { ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
 import { AGENT_API_KEY } from './helpers/agentMcpConfig';
@@ -170,6 +178,38 @@ async function insertStatusHistory(
     `INSERT INTO order_status_history (order_id, changed_by, old_status, new_status, notes, changed_at) VALUES ($1,$2,$3,$4,$5,$6)`,
     [orderId, adminUserId, oldStatus, newStatus, notes, changedAtIso]
   );
+}
+
+/**
+ * Spawns a throwaway repairhub-backend instance (ts-node, not nodemon — a
+ * one-shot process, no watch/restart) with the given env overrides, and
+ * captures every byte it writes to stdout/stderr into an in-memory buffer
+ * for the caller to inspect (e.g. for the request-logging check). Resolves
+ * once the server's own "running on port <port>" startup line appears.
+ * Caller is responsible for killing the returned process.
+ */
+async function spawnBackendCapturingStdout(
+  port: string,
+  envOverrides: Record<string, string>,
+): Promise<{ child: ChildProcessWithoutNullStreams; getOutput: () => string }> {
+  const backendDir = path.join(__dirname, '..', '..', 'repairhub-backend');
+  let output = '';
+  const child = spawn('npx', ['ts-node', 'src/index.ts'], {
+    cwd: backendDir,
+    env: { ...process.env, PORT: port, ...envOverrides },
+  });
+  child.stdout.on('data', (d) => { output += d.toString(); });
+  child.stderr.on('data', (d) => { output += d.toString(); });
+
+  const deadline = Date.now() + 20_000;
+  while (!output.includes(`running on port ${port}`)) {
+    if (Date.now() > deadline) {
+      child.kill();
+      throw new Error(`backend on port ${port} did not start within 20s. Output so far:\n${output}`);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return { child, getOutput: () => output };
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +675,107 @@ test.describe('PW-26 Agent API', () => {
       }
 
       for (const o of created) await cleanup(staffToken, request, o.customerId);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Security review follow-up (backend 9bf41c7): request logging, rate
+  // limiting, widened phone masking
+  // ---------------------------------------------------------------------
+
+  test.describe('security', () => {
+    test('PII: fully-spaced phone digits (e.g. "0 9 1 2 3 4 5 6 7 8") are masked too', async ({ request }) => {
+      const spacedPhone = '0 9 1 2 3 4 5 6 7 8';
+      const { orderId, customerId } = await seedOrder(staffToken, request, {
+        fault_description: `May hong loa, goi lai so ${spacedPhone} khi xong`,
+      });
+
+      const detail = await (await request.get(`${AGENT_BASE}/orders/${orderId}`, { headers: agentHeaders() })).json();
+      expect(detail.data.fault_description).toContain('[đã ẩn]');
+      expect(detail.data.fault_description).not.toContain(spacedPhone);
+      // None of the individual spaced digits should survive as a contiguous
+      // run either — the whole spaced run must be replaced by the token.
+      expect(detail.data.fault_description).not.toMatch(/\d(?:\s\d){9}/);
+
+      await cleanup(staffToken, request, customerId);
+    });
+
+    test('failed-auth rate limit: bad-key requests are rejected with 429 once exceeded; good-key requests are governed by the separate, much higher global limit', async ({ request }) => {
+      const port = process.env.E2E_AGENT_AUTH_FAIL_LIMIT_PORT;
+      if (!port) {
+        test.skip(true, 'E2E_AGENT_AUTH_FAIL_LIMIT_PORT not set — no low-auth-fail-limit backend instance running for this check');
+        return;
+      }
+      const maxAttempts = Number(process.env.E2E_AGENT_AUTH_FAIL_LIMIT_MAX ?? 3);
+      const base = `http://localhost:${port}/api/agent`;
+
+      // Good-key traffic FIRST, more than maxAttempts worth of requests, all
+      // succeeding — proves it isn't bottlenecked by the low auth-fail
+      // budget, only by the separate (much higher, default 120/min) global
+      // limiter. This has to run before deliberately tripping the auth-fail
+      // limiter below: express-rate-limit's skipSuccessfulRequests still
+      // increments the SAME per-IP counter for every request up front
+      // (only decrementing afterward for ones that turn out successful) —
+      // so once that counter is pegged at the limit, literally the very
+      // next request on this IP (good key or not) is rejected by the
+      // limiter itself before it even reaches auth, regardless of what its
+      // own outcome would have been. That's correct, intentional behavior
+      // (a temporary full block from an IP that just brute-forced the key),
+      // not something a single subsequent "good" request can route around.
+      for (let i = 0; i < maxAttempts + 2; i++) {
+        const res = await request.get(`${base}/orders`, { headers: agentHeaders() });
+        expect(res.status(), `good-key attempt ${i}`).toBe(200);
+      }
+
+      let sawRateLimit = false;
+      for (let i = 0; i < maxAttempts + 3 && !sawRateLimit; i++) {
+        const res = await request.get(`${base}/orders`, { headers: agentHeaders('not-the-real-key') });
+        if (res.status() === 429) {
+          sawRateLimit = true;
+          expect(await res.json()).toEqual({ success: false, data: null, error: 'Too Many Requests' });
+        } else {
+          expect(res.status(), `bad-key attempt ${i}`).toBe(401);
+        }
+      }
+      expect(sawRateLimit, `expected 429 within ${maxAttempts + 3} bad-key attempts (limit configured to ${maxAttempts})`).toBe(true);
+    });
+
+    test('request logging: a request produces one [agent-api] line, and the key never appears in stdout', async ({ request }) => {
+      test.setTimeout(30_000);
+      const port = '6066';
+      const { child, getOutput } = await spawnBackendCapturingStdout(port, {
+        AGENT_API_KEY,
+        PUBLIC_MEDIA_BASE_URL: `http://localhost:${port}`,
+      });
+      try {
+        const res = await request.get(`http://localhost:${port}/api/agent/orders?limit=5`, { headers: agentHeaders() });
+        expect(res.status()).toBe(200);
+
+        // The log line is written on the response 'finish' event, which can
+        // land a beat after the HTTP response body itself.
+        const deadline = Date.now() + 5_000;
+        let output = getOutput();
+        while (!output.includes('[agent-api]') && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100));
+          output = getOutput();
+        }
+
+        expect(output).toContain('[agent-api]');
+        expect(output, 'the X-Agent-Key value must never be logged').not.toContain(AGENT_API_KEY);
+
+        const logLine = output.split('\n').find((l) => l.includes('[agent-api]'));
+        expect(logLine).toBeTruthy();
+        const parsed = JSON.parse(logLine!.slice(logLine!.indexOf('{')));
+        expect(parsed.method).toBe('GET');
+        expect(parsed.path).toBe('/api/agent/orders');
+        expect(parsed.status).toBe(200);
+        expect(parsed.outcome).toBe('ok');
+        expect(typeof parsed.duration_ms).toBe('number');
+        // The query string (limit=5) must never be logged either.
+        expect(logLine).not.toContain('limit=5');
+      } finally {
+        child.kill();
+      }
     });
   });
 
