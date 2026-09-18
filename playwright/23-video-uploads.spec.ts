@@ -12,9 +12,20 @@
  *     error "Tệp quá lớn (ảnh tối đa 10MB, video tối đa 100MB)".
  *   - Stored extension is derived from the verified mimetype (.mp4/.mov/
  *     .webm), never the client filename. Files are served from /uploads
- *     with Range support (206 Partial Content).
+ *     with Range support (206 Partial Content), and always carry
+ *     X-Content-Type-Options: nosniff.
  *   - A COMPLETION video satisfies the DA_GIAO/HUY_TRA_MAY evidence rule
  *     the same as a photo; the photo-guidance message now mentions video.
+ *   - Declared mimetype is verified against the file's magic bytes. A
+ *     mismatch → 400 "Nội dung tệp không khớp định dạng", every file from
+ *     the request deleted. The SIZE rule is checked (over all files) before
+ *     the SIGNATURE rule, so an oversized file always reports the size
+ *     message regardless of its own content.
+ *   - Per-request file-count caps: 20 on POST /:id/images, 50 on
+ *     /bulk-with-images, 10 on /warranty-claim. Going over → 400 "Quá
+ *     nhiều tệp trong một lần tải lên", sibling files cleaned up.
+ *   - POST /warranty-claim validates files BEFORE any database write and
+ *     runs in a transaction — a rejected upload creates no BAO_HANH order.
  *
  * Test cases:
  *   API:
@@ -31,13 +42,22 @@
  *     TC-10: mixed request (valid video + oversized image) → 400, no
  *            order_images rows and no new files
  *     TC-11: COMPLETION video + notes → DA_GIAO transition succeeds (200)
+ *     TC-12: HTML declared as video/mp4 → 400 content-mismatch
+ *     TC-13: warranty-claim with an oversized/mismatched file → 400, no
+ *            new BAO_HANH order created for the source
+ *     TC-14: 21 files to POST /:id/images → 400 cap message, no files
+ *            left behind on disk
+ *     TC-15: a successful /uploads/<path> response carries
+ *            X-Content-Type-Options: nosniff
  *
  *   UI:
- *     TC-12: attach the MP4 on order detail and save — gallery shows a
+ *     TC-16: attach the MP4 on order detail and save — gallery shows a
  *            <video> thumbnail; opening it shows <video controls>
- *     TC-13: a wrong-type file shows the client-side error
- *     TC-14: evidence flow with a video instead of a photo — note shown,
+ *     TC-17: a wrong-type file shows the client-side error
+ *     TC-18: evidence flow with a video instead of a photo — note shown,
  *            Save enabled only once notes + video are both present
+ *     TC-19: picking 21 files at once on order detail shows the client
+ *            cap message "... (tối đa 20)"
  *
  * Prerequisites: backend running at http://localhost:6061
  *                frontend running at http://localhost:6060
@@ -56,9 +76,25 @@ const FIXT = (f: string) => path.join(__dirname, 'fixtures', f);
 const MP4_FIXTURE = FIXT('tiny.mp4');
 const MP4_BUFFER = fs.readFileSync(MP4_FIXTURE);
 
+// Real WebM/EBML signature (1A 45 DF A3) — reusing MP4_BUFFER here would now
+// fail the backend's magic-byte signature check.
+const WEBM_BUFFER = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x00, 0x00, 0x00]);
+
+// 8-byte PNG signature — used to build oversized-image payloads that still
+// carry a valid magic-byte header, so they exercise the SIZE rule (checked
+// before the SIGNATURE rule) rather than the content-mismatch rule.
+const PNG_HEADER = Buffer.from('89504e470d0a1a0a', 'hex');
+function oversizedImageBuffer(totalBytes: number): Buffer {
+  return Buffer.concat([PNG_HEADER, Buffer.alloc(totalBytes - PNG_HEADER.length, 0x00)]);
+}
+
 const INVALID_TYPE_MSG = 'Định dạng tệp không hợp lệ';
 const IMAGE_TOO_LARGE_MSG = 'Ảnh quá lớn (tối đa 10MB mỗi ảnh)';
 const FILE_TOO_LARGE_MSG = 'Tệp quá lớn (ảnh tối đa 10MB, video tối đa 100MB)';
+const CONTENT_MISMATCH_MSG = 'Nội dung tệp không khớp định dạng';
+const TOO_MANY_FILES_MSG = 'Quá nhiều tệp trong một lần tải lên';
+const TOO_MANY_FILES_MSG_UI = 'Quá nhiều tệp trong một lần tải lên (tối đa 20)';
+const IMAGES_MAX_FILES = 20;
 const NOTES_MSG = 'Vui lòng nhập ghi chú khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
 const PHOTO_OR_VIDEO_MSG = 'Vui lòng tải ảnh hoặc video khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
 
@@ -128,6 +164,17 @@ async function cleanup(
   customerId: string,
 ): Promise<void> {
   await request.delete(`${API_BASE}/customers/${customerId}`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
+}
+
+/** All orders belonging to a customer — used to assert a rejected warranty
+ * claim created no new (BAO_HANH) order for the source. */
+async function ordersOf(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  customerId: string,
+): Promise<Array<{ id: string; order_code: string }>> {
+  const r = await request.get(`${API_BASE}/customers/${customerId}`, { headers: { Authorization: `Bearer ${token}` } });
+  return (await r.json()).data.orders as Array<{ id: string; order_code: string }>;
 }
 
 /** Upload one file to POST /orders/:id/images and return the raw response. */
@@ -245,7 +292,7 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
   test('TC-05: WebM (video/webm) is accepted', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const res = await uploadToOrder(request, token, orderId, { name: 'clip.webm', mimeType: 'video/webm', buffer: MP4_BUFFER });
+    const res = await uploadToOrder(request, token, orderId, { name: 'clip.webm', mimeType: 'video/webm', buffer: WEBM_BUFFER });
     expect(res.status()).toBe(201);
     const storedPath: string = (await res.json()).data[0].image_path;
     expect(storedPath).toMatch(/\.webm$/);
@@ -276,8 +323,11 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const { orderId, customerId } = await seedOrder(token, request);
     const before = countUploadedFiles();
 
-    const bigImage = Buffer.alloc(11 * 1024 * 1024, 0x42);
-    const res = await uploadToOrder(request, token, orderId, { name: 'huge.jpg', mimeType: 'image/jpeg', buffer: bigImage });
+    // Starts with a valid PNG magic-byte header (see oversizedImageBuffer) so
+    // this exercises the SIZE rule, not the signature-mismatch rule — the
+    // backend checks size across all files before it checks any signature.
+    const bigImage = oversizedImageBuffer(11 * 1024 * 1024);
+    const res = await uploadToOrder(request, token, orderId, { name: 'huge.png', mimeType: 'image/png', buffer: bigImage });
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(body.error).toBe(IMAGE_TOO_LARGE_MSG);
@@ -314,7 +364,9 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const { orderId, customerId } = await seedOrder(token, request);
     const before = countUploadedFiles();
 
-    const bigImage = Buffer.alloc(11 * 1024 * 1024, 0x44);
+    // Starts with a valid PNG header — see oversizedImageBuffer — so this
+    // still exercises the SIZE rule even though the signature check now runs.
+    const bigImage = oversizedImageBuffer(11 * 1024 * 1024);
     // Two files under the SAME "images" field name (multer's upload.array('images'))
     // can't be expressed with Playwright's plain-object `multipart` shorthand
     // (it's a flat record — one value per key), so build it with the
@@ -322,7 +374,7 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const form = new FormData();
     form.set('image_type', 'INTAKE');
     form.append('images', new File([MP4_BUFFER], 'clip.mp4', { type: 'video/mp4' }));
-    form.append('images', new File([bigImage], 'huge.jpg', { type: 'image/jpeg' }));
+    form.append('images', new File([bigImage], 'huge.png', { type: 'image/png' }));
     const res = await request.post(`${API_BASE}/orders/${orderId}/images`, {
       headers: { Authorization: `Bearer ${token}` },
       multipart: form,
@@ -361,6 +413,92 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
     await cleanup(token, request, customerId);
   });
+
+  test('TC-12: HTML declared as video/mp4 is rejected as a content mismatch', async ({ request }) => {
+    const { orderId, customerId } = await seedOrder(token, request);
+    const before = countUploadedFiles();
+
+    const html = Buffer.from('<!DOCTYPE html><html><body>not a video</body></html>');
+    const res = await uploadToOrder(request, token, orderId, { name: 'fake.mp4', mimeType: 'video/mp4', buffer: html });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe(CONTENT_MISMATCH_MSG);
+
+    const after = countUploadedFiles();
+    if (before >= 0 && after >= 0) {
+      expect(after, 'uploads dir must not grow from a content-mismatch rejection').toBe(before);
+    }
+
+    await cleanup(token, request, customerId);
+  });
+
+  test('TC-13: warranty-claim with an oversized/mismatched file is rejected and creates no BAO_HANH order', async ({ request }) => {
+    const { orderId: sourceOrderId, orderCode: sourceOrderCode, customerId, branchId } = await seedOrder(token, request);
+
+    // Content mismatch: declared image/png, real bytes are HTML.
+    const badFile = Buffer.from('<!DOCTYPE html><html><body>not an image</body></html>');
+    const res = await request.post(`${API_BASE}/orders/warranty-claim`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        source_order_id: sourceOrderId,
+        branch_id: branchId,
+        fault_description: 'PW-23 warranty content-mismatch test',
+        images_1: { name: 'fake.png', mimeType: 'image/png', buffer: badFile },
+      },
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe(CONTENT_MISMATCH_MSG);
+
+    // Files are validated BEFORE any database write, in a transaction — no
+    // <sourceOrderCode>-BH order should exist for this source.
+    const orders = await ordersOf(request, token, customerId);
+    const bhOrder = orders.find((o) => o.order_code === `${sourceOrderCode}-BH`);
+    expect(bhOrder, 'no BAO_HANH order created from a rejected warranty-claim upload').toBeUndefined();
+    expect(orders.length, 'only the original source order exists for this customer').toBe(1);
+
+    await cleanup(token, request, customerId);
+  });
+
+  test('TC-14: 21 files to POST /:id/images is rejected with the file-count cap and leaves no files behind', async ({ request }) => {
+    const { orderId, customerId } = await seedOrder(token, request);
+    const before = countUploadedFiles();
+
+    const jpegBuffer = fs.readFileSync(FIXT('img-a1.jpg'));
+    const form = new FormData();
+    form.set('image_type', 'INTAKE');
+    for (let i = 0; i < IMAGES_MAX_FILES + 1; i += 1) {
+      form.append('images', new File([jpegBuffer], `p${i}.jpg`, { type: 'image/jpeg' }));
+    }
+    const res = await request.post(`${API_BASE}/orders/${orderId}/images`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: form,
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe(TOO_MANY_FILES_MSG);
+
+    const after = countUploadedFiles();
+    if (before >= 0 && after >= 0) {
+      expect(after, 'uploads dir must not grow from a rejected over-the-cap request').toBe(before);
+    }
+
+    await cleanup(token, request, customerId);
+  });
+
+  test('TC-15: a successful /uploads response carries X-Content-Type-Options: nosniff', async ({ request }) => {
+    const { orderId, customerId } = await seedOrder(token, request);
+
+    const uploadRes = await uploadToOrder(request, token, orderId, { name: 'clip.mp4', mimeType: 'video/mp4', buffer: MP4_BUFFER });
+    expect(uploadRes.status()).toBe(201);
+    const storedPath: string = (await uploadRes.json()).data[0].image_path;
+
+    const fileRes = await request.get(`${API_ORIGIN}/uploads/${storedPath}`);
+    expect(fileRes.ok()).toBeTruthy();
+    expect(fileRes.headers()['x-content-type-options']).toBe('nosniff');
+
+    await cleanup(token, request, customerId);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -374,7 +512,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     token = await apiLogin(request);
   });
 
-  test('TC-12: attaching the MP4 and saving shows a video thumbnail and plays in the lightbox', async ({ page, request }) => {
+  test('TC-16: attaching the MP4 and saving shows a video thumbnail and plays in the lightbox', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     await loginViaUI(page);
@@ -401,7 +539,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await cleanup(token, request, customerId);
   });
 
-  test('TC-13: a wrong-type file shows the client-side error', async ({ page, request }) => {
+  test('TC-17: a wrong-type file shows the client-side error', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     await loginViaUI(page);
@@ -420,7 +558,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await cleanup(token, request, customerId);
   });
 
-  test('TC-14: the evidence flow works with a video instead of a photo', async ({ page, request }) => {
+  test('TC-18: the evidence flow works with a video instead of a photo', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     await loginViaUI(page);
@@ -444,6 +582,27 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
 
     const badge = page.getByTestId('order-status-badge');
     await expect(badge).toContainText('Đã giao', { timeout: 10_000 });
+
+    await cleanup(token, request, customerId);
+  });
+
+  test('TC-19: picking 21 files at once on order detail shows the client-side cap message', async ({ page, request }) => {
+    const { orderId, customerId } = await seedOrder(token, request);
+    const jpegBuffer = fs.readFileSync(FIXT('img-a1.jpg'));
+
+    await loginViaUI(page);
+    await page.goto(`/orders/${orderId}`);
+
+    const files = Array.from({ length: IMAGES_MAX_FILES + 1 }, (_, i) => ({
+      name: `p${i}.jpg`,
+      mimeType: 'image/jpeg',
+      buffer: jpegBuffer,
+    }));
+    await page.locator('input[type="file"]').setInputFiles(files);
+
+    await expect(page.getByText(TOO_MANY_FILES_MSG_UI)).toBeVisible({ timeout: 5_000 });
+    // The first 20 files are still added — only the 21st is dropped by the cap.
+    await expect(page.getByText(new RegExp(`Đã chọn ${IMAGES_MAX_FILES}`))).toBeVisible({ timeout: 5_000 });
 
     await cleanup(token, request, customerId);
   });

@@ -88,8 +88,16 @@ test.describe('RH-142 atomic order+images create', () => {
   });
 
   test('TC-02: a failed image on one product rolls back the whole create (no orders)', async ({ request }) => {
-    // product B carries a corrupt "HEIC" (valid mimetype, undecodable bytes) → heic-convert throws mid-transaction
-    const corruptHeic = Buffer.from('NOT-A-REAL-HEIC-'.repeat(64));
+    // product B carries a corrupt "HEIC": a valid ftyp/heic magic-byte header
+    // (so it passes the backend's pre-transaction signature check and this
+    // test still actually exercises the mid-transaction rollback path) but
+    // an undecodable body — heic-convert throws once storeUploadedMedia runs
+    // inside the transaction, after the order rows are already inserted.
+    const corruptHeic = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x18]),
+      Buffer.from('ftypheic', 'ascii'),
+      Buffer.from('NOT-A-REAL-HEIC-BITSTREAM-'.repeat(20), 'ascii'),
+    ]);
     const res = await request.post(`${API_BASE}/orders/bulk-with-images`, {
       headers: { Authorization: `Bearer ${token}` },
       multipart: {
