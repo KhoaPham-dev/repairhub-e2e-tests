@@ -49,14 +49,16 @@
  *            left behind on disk
  *     TC-15: a successful /uploads/<path> response carries
  *            X-Content-Type-Options: nosniff
+ *     TC-16: warranty-claim with a valid MP4 but a non-existent
+ *            source_order_id → 404, uploads dir file count unchanged
  *
  *   UI:
- *     TC-16: attach the MP4 on order detail and save — gallery shows a
+ *     TC-17: attach the MP4 on order detail and save — gallery shows a
  *            <video> thumbnail; opening it shows <video controls>
- *     TC-17: a wrong-type file shows the client-side error
- *     TC-18: evidence flow with a video instead of a photo — note shown,
+ *     TC-18: a wrong-type file shows the client-side error
+ *     TC-19: evidence flow with a video instead of a photo — note shown,
  *            Save enabled only once notes + video are both present
- *     TC-19: picking 21 files at once on order detail shows the client
+ *     TC-20: picking 21 files at once on order detail shows the client
  *            cap message "... (tối đa 20)"
  *
  * Prerequisites: backend running at http://localhost:6061
@@ -498,6 +500,29 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
     await cleanup(token, request, customerId);
   });
+
+  test('TC-16: warranty-claim with a valid MP4 but a non-existent source_order_id returns 404 and leaves no file on disk', async ({ request }) => {
+    const branchId = (await (await request.get(`${API_BASE}/branches`, { headers: { Authorization: `Bearer ${token}` } })).json()).data[0].id;
+    const before = countUploadedFiles();
+
+    const res = await request.post(`${API_BASE}/orders/warranty-claim`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        source_order_id: '00000000-0000-0000-0000-000000000000',
+        branch_id: branchId,
+        fault_description: 'PW-23 warranty non-existent-source test',
+        images_1: { name: 'clip.mp4', mimeType: 'video/mp4', buffer: MP4_BUFFER },
+      },
+    });
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe('Không tìm thấy đơn gốc');
+
+    const after = countUploadedFiles();
+    if (before >= 0 && after >= 0) {
+      expect(after, 'uploads dir must not grow — the already-written file is discarded on the 404 path').toBe(before);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -511,7 +536,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     token = await apiLogin(request);
   });
 
-  test('TC-16: attaching the MP4 and saving shows a video thumbnail and plays in the lightbox', async ({ page, request }) => {
+  test('TC-17: attaching the MP4 and saving shows a video thumbnail and plays in the lightbox', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     await loginViaUI(page);
@@ -538,7 +563,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await cleanup(token, request, customerId);
   });
 
-  test('TC-17: a wrong-type file shows the client-side error', async ({ page, request }) => {
+  test('TC-18: a wrong-type file shows the client-side error', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     await loginViaUI(page);
@@ -557,7 +582,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await cleanup(token, request, customerId);
   });
 
-  test('TC-18: the evidence flow works with a video instead of a photo', async ({ page, request }) => {
+  test('TC-19: the evidence flow works with a video instead of a photo', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     await loginViaUI(page);
@@ -585,7 +610,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await cleanup(token, request, customerId);
   });
 
-  test('TC-19: picking 21 files at once on order detail shows the client-side cap message', async ({ page, request }) => {
+  test('TC-20: picking 21 files at once on order detail shows the client-side cap message', async ({ page, request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
     const jpegBuffer = fs.readFileSync(FIXT('img-a1.jpg'));
 
