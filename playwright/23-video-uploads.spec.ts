@@ -76,6 +76,12 @@ const API_ORIGIN = API_BASE.replace(/\/api$/, '');
 const FIXT = (f: string) => path.join(__dirname, 'fixtures', f);
 const MP4_FIXTURE = FIXT('tiny.mp4');
 const MP4_BUFFER = fs.readFileSync(MP4_FIXTURE);
+// Real QuickTime content (ftyp major brand "qt  ") — since the backend now
+// detects the real type from content (fix/upload-content-detection) rather
+// than trusting the declared mimetype, reusing MP4_BUFFER here would now be
+// (correctly) detected and stored as .mp4, not .mov. Shared with
+// 25-upload-content-detection.spec.ts's fixtures.
+const MOV_BUFFER = fs.readFileSync(FIXT('clip.mov'));
 
 // Real WebM/EBML signature (1A 45 DF A3) — reusing MP4_BUFFER here would now
 // fail the backend's magic-byte signature check.
@@ -284,7 +290,7 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
   test('TC-04: MOV (video/quicktime) is accepted', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
-    const res = await uploadToOrder(request, token, orderId, { name: 'clip.mov', mimeType: 'video/quicktime', buffer: MP4_BUFFER });
+    const res = await uploadToOrder(request, token, orderId, { name: 'clip.mov', mimeType: 'video/quicktime', buffer: MOV_BUFFER });
     expect(res.status()).toBe(201);
     const storedPath: string = (await res.json()).data[0].image_path;
     expect(storedPath).toMatch(/\.mov$/);
@@ -423,7 +429,9 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     const res = await uploadToOrder(request, token, orderId, { name: 'fake.mp4', mimeType: 'video/mp4', buffer: html });
     expect(res.status()).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe(CONTENT_MISMATCH_MSG);
+    // The message now echoes the sanitised original filename so the user
+    // can tell which file was rejected (fix/upload-content-detection).
+    expect(body.error).toBe(`${CONTENT_MISMATCH_MSG}: fake.mp4`);
 
     const after = countUploadedFiles();
     if (before >= 0 && after >= 0) {
@@ -449,7 +457,7 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     });
     expect(res.status()).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe(CONTENT_MISMATCH_MSG);
+    expect(body.error).toBe(`${CONTENT_MISMATCH_MSG}: fake.png`);
 
     // Files are validated BEFORE any database write, in a transaction — no
     // <sourceOrderCode>-BH order should exist for this source.
