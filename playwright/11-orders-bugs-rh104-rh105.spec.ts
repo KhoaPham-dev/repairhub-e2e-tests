@@ -19,7 +19,7 @@
 
 import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { transitionStatus } from './helpers/images';
 import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
@@ -95,16 +95,10 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
-  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
-  // order before the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may).
-  // Notes are always sent below, satisfying the notes half of the rule.
-  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
-    await uploadCompletionImage(request, token, orderId);
-  }
-  await request.put(`${API_BASE}/orders/${orderId}/status`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: { status, notes: `E2E advance to ${status}` },
-  });
+  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image + notes before
+  // the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may) —
+  // transitionStatus() handles both; see playwright/helpers/images.ts.
+  await transitionStatus(request, token, orderId, status, { notes: `E2E advance to ${status}` });
 }
 
 /**
@@ -185,7 +179,7 @@ test.describe('TC-02: RH-104 — HUY_TRA_MAY order shows read-only Báo giá (AC
     const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       quotation: 280000,
-      phone: `091${String(runId + 1).slice(-7)}`,
+      phone: `091${runId.slice(-7)}`,
     }));
     // Advance to HUY_TRA_MAY via the TRA_HANG path
     await advanceStatus(token, request, orderId, 'DANG_KIEM_TRA');
@@ -227,7 +221,7 @@ test.describe('TC-03: RH-104 — Zero quotation terminal order shows "Chưa có"
     const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       quotation: 0,
-      phone: `092${String(runId + 2).slice(-7)}`,
+      phone: `092${runId.slice(-7)}`,
     }));
     // Advance to DA_GIAO
     await advanceStatus(token, request, orderId, 'DANG_KIEM_TRA');
@@ -264,7 +258,7 @@ test.describe('TC-04: RH-104 — Non-terminal order has editable Báo giá input
     const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
       quotation: 150000,
-      phone: `093${String(runId + 3).slice(-7)}`,
+      phone: `093${runId.slice(-7)}`,
     }));
     // Keep at TIEP_NHAN — this is a non-terminal status
   });
@@ -386,7 +380,7 @@ test.describe('TC-08: RH-105 — Back-navigation preserves filter state (AC-1)',
     token = await apiLogin(request);
     const runId = uniqueNow();
     ({ orderId, customerId } = await seedOrder(token, request, {
-      phone: `094${String(runId + 4).slice(-7)}`,
+      phone: `094${runId.slice(-7)}`,
     }));
     // Keep order at TIEP_NHAN so it appears under that filter
   });

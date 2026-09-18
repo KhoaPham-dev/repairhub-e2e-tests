@@ -66,6 +66,24 @@ Use the same connection string as the backend's own `DATABASE_URL` (see
 `scripts/db-cleanup.js` for the exact delete order and `playwright/.env.example`
 for where to set this for Playwright runs.
 
+### Safety guard
+
+Before running any DELETE, cleanup logs `[e2e-cleanup] target host=<host>
+db=<dbname>` (never credentials) and only proceeds if the host is a
+loopback address (`localhost`, `127.0.0.1`, `::1`) or this project's local
+docker-compose Postgres service name (`postgres`/`db`), **or** the
+database name matches `/test|e2e/i`. Otherwise it refuses — throwing an
+error, deleting nothing, leaving the registry intact — which is the
+expected outcome if `E2E_DATABASE_URL` ever ends up pointing at a
+shared/staging/production database. To intentionally clean up a database
+that doesn't match those rules, set `E2E_ALLOW_REMOTE_CLEANUP=1`. The
+decision logic is a pure function (`isCleanupTargetAllowed` in
+`scripts/db-cleanup.js`) with its own test coverage:
+
+```bash
+npm run test:cleanup-guard
+```
+
 ## Test Structure
 
 ```

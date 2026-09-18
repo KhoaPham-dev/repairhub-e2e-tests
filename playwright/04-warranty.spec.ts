@@ -21,7 +21,7 @@
 import { test, expect } from './helpers/fixtures';
 import type { Page } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
+import { transitionStatus } from './helpers/images';
 import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
@@ -43,15 +43,10 @@ async function advanceToDelivered(
   // Matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31.
   const statuses = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
   for (const status of statuses) {
-    // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
-    // order before the status PUT is accepted (RH: status-change-required-images).
-    if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
-      await uploadCompletionImage(request, token, orderId);
-    }
-    await request.put(`${API_BASE}/orders/${orderId}/status`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { status, notes: `Advancing to ${status} for PW-04 test` },
-    });
+    // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image + notes before
+    // the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may) —
+    // transitionStatus() handles both; see playwright/helpers/images.ts.
+    await transitionStatus(request, token, orderId, status, { notes: `Advancing to ${status} for PW-04 test` });
   }
 }
 

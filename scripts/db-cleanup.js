@@ -17,10 +17,57 @@
  * fix/customer-delete-with-orders — so without DB access test data is
  * simply left behind, same as before this change for customers with
  * orders).
+ *
+ * Before running any DELETE, the target host/db name (never credentials)
+ * are logged and checked against isCleanupTargetAllowed(): only a
+ * loopback host, a known local docker-compose Postgres service name, or a
+ * db name matching /test|e2e/i is allowed, unless E2E_ALLOW_REMOTE_CLEANUP=1
+ * is set. Otherwise cleanup refuses to run (throws) without touching the
+ * registry or the database — this is a defense-in-depth guard against
+ * E2E_DATABASE_URL accidentally pointing at a shared/staging/prod database;
+ * every query is already scoped to registered ids regardless.
  */
 
 const fs = require('fs');
 const path = require('path');
+
+// Hosts that are always safe to run DELETEs against without further checks:
+// loopback addresses, plus the docker-compose service name this project's
+// own local/dev stacks use for Postgres (repairhub-infra/docker-compose*.yml
+// — the `postgres` service; `db` is included too as a common alternative
+// name in case a future compose file uses it).
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'postgres', 'db']);
+
+/**
+ * Parse E2E_DATABASE_URL into just the parts needed for the safety check
+ * and for logging — never the credentials.
+ */
+function parseCleanupTarget(dbUrl) {
+  let url;
+  try {
+    url = new URL(dbUrl);
+  } catch {
+    return { host: null, dbName: null };
+  }
+  // WHATWG URL wraps IPv6 literals in brackets ("[::1]") in .hostname;
+  // strip them so it compares equal to the bare form in LOCAL_HOSTS.
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const dbName = url.pathname.replace(/^\//, '') || null;
+  return { host, dbName };
+}
+
+/**
+ * Pure decision function — given a parsed target and whether the explicit
+ * remote-cleanup override is set, decide whether it's safe to run DELETEs
+ * against it. No I/O, no side effects, so it's cheap to unit test on its
+ * own (see scripts/__tests__/db-cleanup-guard.test.js).
+ */
+function isCleanupTargetAllowed({ host, dbName }, allowRemote) {
+  if (allowRemote) return true;
+  if (host && LOCAL_HOSTS.has(host)) return true;
+  if (dbName && /test|e2e/i.test(dbName)) return true;
+  return false;
+}
 
 function readRegisteredCustomerIds(registryDir) {
   const ids = new Set();
@@ -63,6 +110,23 @@ async function cleanupRegisteredCustomers(registryDir, label) {
   if (!dbUrl) {
     console.log(`[e2e-cleanup:${label}] E2E_DATABASE_URL is not set — skipping DB teardown.`);
     return;
+  }
+
+  // Safety guard: never run DELETEs against something that doesn't look
+  // like a local/test database, even though every query is scoped to
+  // registered ids. Log the target (host + db name only — never
+  // credentials) before deciding.
+  const target = parseCleanupTarget(dbUrl);
+  console.log(`[e2e-cleanup:${label}] target host=${target.host ?? '(unparseable)'} db=${target.dbName ?? '(unparseable)'}`);
+
+  const allowRemote = process.env.E2E_ALLOW_REMOTE_CLEANUP === '1';
+  if (!isCleanupTargetAllowed(target, allowRemote)) {
+    throw new Error(
+      `[e2e-cleanup:${label}] Refusing to run DB teardown: host "${target.host}" / db "${target.dbName}" ` +
+      `is not a recognized local/test database (allowed hosts: ${Array.from(LOCAL_HOSTS).join(', ')}; ` +
+      `or a db name matching /test|e2e/i). Nothing was deleted and the registry is intact. If this really ` +
+      `is a database you want cleaned up, set E2E_ALLOW_REMOTE_CLEANUP=1.`
+    );
   }
 
   const ids = Array.from(readRegisteredCustomerIds(registryDir));
@@ -118,4 +182,11 @@ async function cleanupRegisteredCustomers(registryDir, label) {
   clearRegistry(registryDir);
 }
 
-module.exports = { cleanupRegisteredCustomers, readRegisteredCustomerIds, clearRegistry };
+module.exports = {
+  cleanupRegisteredCustomers,
+  readRegisteredCustomerIds,
+  clearRegistry,
+  parseCleanupTarget,
+  isCleanupTargetAllowed,
+  LOCAL_HOSTS,
+};

@@ -16,7 +16,7 @@
 
 import { test, expect } from './helpers/fixtures';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
-import { EVIDENCE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
+import { transitionStatus, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
 import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
@@ -97,16 +97,10 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
-  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on the
-  // order before the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may).
-  // Notes are always sent below, satisfying the notes half of the rule.
-  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
-    await uploadCompletionImage(request, token, orderId);
-  }
-  await request.put(`${API_BASE}/orders/${orderId}/status`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: { status, notes: `E2E advance to ${status}` },
-  });
+  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image + notes before
+  // the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may) —
+  // transitionStatus() handles both; see playwright/helpers/images.ts.
+  await transitionStatus(request, token, orderId, status, { notes: `E2E advance to ${status}` });
 }
 
 /**
