@@ -14,11 +14,17 @@
  *            not count — upload, transition to a non-required status, then
  *            attempt DA_GIAO → 400
  *     TC-06: Non-required status transitions still work without any image
+ *     TC-09: A warranty-duration PATCH (old_status = new_status history row)
+ *            after the image upload does not make it stale — DA_GIAO still 200
+ *     TC-10: A notes-only PATCH (same administrative history row shape) after
+ *            the image upload does not make it stale — TRA_HANG still 200
  *
  *   UI:
  *     TC-07: Selecting "Đã giao" shows the required-image note and disables Save
  *     TC-08: Attaching an image enables Save; saving transitions the order and
  *            the new image appears under "Ảnh đã lưu"
+ *     TC-11: Changing the warranty duration and selecting "Đã giao" in the same
+ *            save (no new image attached) succeeds using an existing fresh image
  *
  * Prerequisites: backend running at http://localhost:6061
  *                frontend running at http://localhost:6060
@@ -51,7 +57,7 @@ interface SeedResult {
 async function seedOrder(
   token: string,
   request: import('@playwright/test').APIRequestContext,
-  opts: { phone?: string } = {},
+  opts: { phone?: string; warrantyMonths?: number } = {},
 ): Promise<SeedResult> {
   const runId = Date.now() + Math.floor(Math.random() * 1000);
   const phone = opts.phone ?? `096${String(runId).slice(-7)}`;
@@ -84,6 +90,7 @@ async function seedOrder(
       serial_imei: `SN-PW22-${runId}`,
       fault_description: 'E2E status-change-required-images test',
       quotation: 200000,
+      ...(opts.warrantyMonths !== undefined ? { warranty_period_months: opts.warrantyMonths } : {}),
     },
   });
   const oBody = await oRes.json();
@@ -92,6 +99,18 @@ async function seedOrder(
     orderCode: oBody.data.order_code as string,
     customerId,
   };
+}
+
+async function patchOrder(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  orderId: string,
+  data: Record<string, unknown>,
+) {
+  return request.patch(`${API_BASE}/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data,
+  });
 }
 
 async function uploadImage(
@@ -219,6 +238,43 @@ test.describe('PW-22 API — DA_GIAO / TRA_HANG require a fresh COMPLETION image
     expect(body.data.status).toBe('BAO_GIA');
     await cleanup(token, request, customerId);
   });
+
+  test('TC-09: a warranty-duration PATCH after the image upload does not make it stale — DA_GIAO still 200', async ({ request }) => {
+    const { orderId, customerId } = await seedOrder(token, request, { warrantyMonths: 3 });
+    const upload = await uploadImage(request, token, orderId, 'COMPLETION');
+    expect(upload.status()).toBe(201);
+
+    // PATCH /orders/:id records an administrative history row
+    // (old_status === new_status) for the warranty-duration change — this
+    // must NOT count as a newer status change for the freshness check.
+    const patchRes = await patchOrder(request, token, orderId, { warranty_period_months: 6 });
+    expect(patchRes.status()).toBe(200);
+
+    const res = await putStatus(request, token, orderId, 'DA_GIAO');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe('DA_GIAO');
+    await cleanup(token, request, customerId);
+  });
+
+  test('TC-10: a notes-only PATCH after the image upload does not make it stale — TRA_HANG still 200', async ({ request }) => {
+    const { orderId, customerId } = await seedOrder(token, request);
+    const upload = await uploadImage(request, token, orderId, 'COMPLETION');
+    expect(upload.status()).toBe(201);
+
+    // A notes-only PATCH also records an administrative history row
+    // (old_status === new_status) and must not invalidate the fresh image.
+    const patchRes = await patchOrder(request, token, orderId, { notes: 'Ghi chú kiểm tra PW-22' });
+    expect(patchRes.status()).toBe(200);
+
+    const res = await putStatus(request, token, orderId, 'TRA_HANG');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe('TRA_HANG');
+    await cleanup(token, request, customerId);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -276,5 +332,37 @@ test.describe('PW-22 UI — order detail enforces the required-image rule', () =
     // Order is now terminal — editable section is gone, and the saved image
     // gallery shows the newly-uploaded completion photo.
     await expect(page.getByText(/Ảnh đã lưu \(1\)/)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('TC-11: changing warranty duration and selecting "Đã giao" in the same save succeeds using an existing fresh image', async ({ page, request }) => {
+    // Seed a separate order (3-month warranty, like RH-133's test) with a
+    // COMPLETION image already uploaded — no new image will be attached here.
+    const { orderId: freshOrderId, customerId: freshCustomerId } = await seedOrder(token, request, {
+      warrantyMonths: 3,
+    });
+    const upload = await uploadImage(request, token, freshOrderId, 'COMPLETION');
+    expect(upload.status()).toBe(201);
+
+    await loginViaUI(page);
+    await page.goto(`/orders/${freshOrderId}`);
+
+    // Change warranty duration (order starts at 3 tháng) — this queues a
+    // PATCH that will insert an administrative history row alongside the
+    // DA_GIAO status PUT in the same "Lưu thay đổi" save.
+    await page.getByRole('button', { name: '6 tháng' }).click();
+
+    // Select Đã giao — no new image is attached; the existing COMPLETION
+    // image (uploaded after order creation) should still count as fresh.
+    await page.locator('select').selectOption({ label: 'Đã giao' });
+    await expect(page.getByText(/đã có ảnh mới/)).toBeVisible({ timeout: 5_000 });
+
+    const saveButton = page.getByRole('button', { name: /Lưu thay đổi/i });
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+
+    const badge = page.locator('span.bg-accent\\/10');
+    await expect(badge).toContainText('Đã giao', { timeout: 10_000 });
+
+    await cleanup(token, request, freshCustomerId);
   });
 });
