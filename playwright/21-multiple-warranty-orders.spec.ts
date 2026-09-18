@@ -141,12 +141,29 @@ test.describe('PW-21 Multiple Warranty Orders per Source', () => {
     await advanceToDelivered(token, sourceOrderId, request);
   });
 
-  test.afterAll(async ({ request }) => {
-    if (customerId) {
-      await request.delete(`${API_BASE}/customers/${customerId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => null);
-    }
+  test.afterAll(async () => {
+    // No cleanup call here — intentionally.
+    //
+    // This test creates 4 orders for the customer (the source order plus
+    // -BH, -BH2, -BH3). orders.customer_id is `REFERENCES customers(id)`
+    // with no `ON DELETE CASCADE` (migrations/001_initial_schema.sql), and
+    // the backend exposes no order-delete/cancel endpoint (orders.ts only
+    // has PATCH /:id and PUT /:id/status) — there is no way to remove the
+    // orders first. So `DELETE /customers/:id` would always fail with a
+    // foreign-key violation once those orders exist; calling it and
+    // swallowing the error (the pattern other specs use) just hides an
+    // always-failing request rather than actually cleaning up.
+    //
+    // The customer and its orders are left behind on purpose. They are
+    // uniquely identifiable for a future DB-level test-data prune by the
+    // runId embedded in the customer phone ("093" + runId suffix) and in
+    // the device name ("Tai nghe PW21-<runId>") — see the console.info
+    // below for the exact values from this run.
+    console.info(
+      `[PW-21] leaving test fixtures in place: customerId=${customerId}, ` +
+      `phone=${customerPhone}, sourceOrderCode=${sourceOrderCode} (no order-delete ` +
+      `endpoint / no ON DELETE CASCADE on orders.customer_id)`,
+    );
   });
 
   test('first warranty claim on a source order creates code <src>-BH', async ({ request }) => {
