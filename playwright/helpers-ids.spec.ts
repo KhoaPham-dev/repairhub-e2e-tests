@@ -7,9 +7,12 @@
  * fewer than 9 digits, so `String(uniqueNow()).slice(-7)` could come up
  * short (or, combined with `runId + 1`-style arithmetic elsewhere,
  * malformed). uniqueNow() must always return a fixed-width, all-digit
- * string, and must never repeat across many calls — including across
- * different simulated worker indices, since parallel Playwright workers
- * must not collide with each other either.
+ * string whose 2-digit worker prefix keeps parallel workers disjoint.
+ *
+ * Uniqueness within one worker is probabilistic (9 random digits), so the
+ * no-duplicate checks use a realistic per-run volume (REALISTIC_CALLS).
+ * At 5,000 draws the birthday bound gives a ~1.25% duplicate chance per
+ * worker, which made the old 5,000-draw uniqueness assertions flaky.
  *
  * These tests call the pure function directly — no page/request fixture
  * is used, so no browser is launched for this file.
@@ -19,6 +22,9 @@ import { uniqueNow } from './helpers/ids';
 
 const DIGITS_ONLY = /^\d{11}$/;
 const ITERATIONS = 5_000;
+// A full suite run generates on the order of a hundred ids per worker.
+// Duplicate probability at 200 draws: ~200^2 / (2 * 10^9) = 0.002%.
+const REALISTIC_CALLS = 200;
 
 function generateMany(workerIndex: string, count: number): string[] {
   const prevWorker = process.env.TEST_WORKER_INDEX;
@@ -47,14 +53,15 @@ test.describe('uniqueNow() self-check', () => {
     }
   });
 
-  test(`worker 0 produces no duplicates across ${ITERATIONS} calls`, () => {
-    const values = generateMany('0', ITERATIONS);
+  test(`worker 0 produces no duplicates across ${REALISTIC_CALLS} calls`, () => {
+    const values = generateMany('0', REALISTIC_CALLS);
     expect(new Set(values).size).toBe(values.length);
   });
 
-  test(`worker 1 produces no duplicates across ${ITERATIONS} calls, and is fixed-width too`, () => {
+  test(`worker 1 produces no duplicates across ${REALISTIC_CALLS} calls, and is fixed-width across ${ITERATIONS}`, () => {
+    const sample = generateMany('1', REALISTIC_CALLS);
+    expect(new Set(sample).size).toBe(sample.length);
     const values = generateMany('1', ITERATIONS);
-    expect(new Set(values).size).toBe(values.length);
     for (const v of values) {
       expect(v).toMatch(DIGITS_ONLY);
       expect(v.length).toBe(11);
@@ -62,10 +69,15 @@ test.describe('uniqueNow() self-check', () => {
   });
 
   test('worker 0 and worker 1 pools never collide with each other', () => {
-    const worker0 = generateMany('0', ITERATIONS);
+    // Deterministic: every id carries its worker index as a 2-digit prefix,
+    // so the two pools are disjoint regardless of the random part.
+    const worker0 = new Set(generateMany('0', ITERATIONS));
     const worker1 = generateMany('1', ITERATIONS);
-    const combined = new Set([...worker0, ...worker1]);
-    expect(combined.size).toBe(worker0.length + worker1.length);
+    for (const v of worker0) expect(v.startsWith('00')).toBe(true);
+    for (const v of worker1) {
+      expect(v.startsWith('01')).toBe(true);
+      expect(worker0.has(v)).toBe(false);
+    }
   });
 
   test('an unset worker index (defaults to "0") is still fixed-width and collision-free', () => {
@@ -77,7 +89,9 @@ test.describe('uniqueNow() self-check', () => {
       const values: string[] = [];
       for (let i = 0; i < ITERATIONS; i++) values.push(uniqueNow());
       for (const v of values) expect(v).toMatch(DIGITS_ONLY);
-      expect(new Set(values).size).toBe(values.length);
+      expect(values.every((v) => v.startsWith('00'))).toBe(true);
+      const sample = values.slice(0, REALISTIC_CALLS);
+      expect(new Set(sample).size).toBe(sample.length);
     } finally {
       if (prevWorker !== undefined) process.env.TEST_WORKER_INDEX = prevWorker;
       if (prevJestWorker !== undefined) process.env.JEST_WORKER_ID = prevJestWorker;
