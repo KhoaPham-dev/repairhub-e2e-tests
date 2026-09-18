@@ -58,7 +58,7 @@ import { uniqueNow } from './helpers/ids';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 const NOTES_MSG = 'Vui lòng nhập ghi chú khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
-const PHOTO_MSG = 'Vui lòng tải ảnh khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
+const PHOTO_MSG = 'Vui lòng tải ảnh hoặc video khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
 const FIXT = (f: string) => path.join(__dirname, 'fixtures', f);
 
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {
@@ -381,7 +381,7 @@ test.describe('PW-22 UI — order detail enforces the evidence rule', () => {
     await page.locator('select').selectOption({ label: 'Đã giao' });
 
     await expect(
-      page.getByText('Bắt buộc tải lên ít nhất 1 ảnh và nhập ghi chú khi chuyển sang trạng thái này')
+      page.getByText('Bắt buộc tải lên ít nhất 1 ảnh hoặc video và nhập ghi chú khi chuyển sang trạng thái này')
     ).toBeVisible({ timeout: 5_000 });
 
     await expect(page.getByRole('button', { name: /Lưu thay đổi/i })).toBeDisabled();

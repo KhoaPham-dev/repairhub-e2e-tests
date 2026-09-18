@@ -147,11 +147,11 @@ test.describe('PW-20 Warranty Claim with Image Upload', () => {
     // Upload image
     const testImage = path.join(__dirname, 'fixtures', 'img-a1.jpg');
     const fileChooserPromise = page.waitForEvent('filechooser');
-    await page.getByText('Chọn hình ảnh').first().click();
+    await page.getByText('Chọn ảnh / video').first().click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(testImage);
 
-    // Wait for image preview to appear (shows "Đã chọn X ảnh")
+    // Wait for image preview to appear (shows "Đã chọn X ảnh/video")
     await expect(page.getByText(/Đã chọn/)).toBeVisible({ timeout: 10_000 });
 
     // Take a screenshot for debugging
