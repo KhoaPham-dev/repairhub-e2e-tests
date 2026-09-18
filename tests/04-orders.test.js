@@ -18,7 +18,7 @@
  *   - Sort by date asc/desc
  */
 
-const { api, login, buildImageFormData } = require('../helpers/api');
+const { api, login, buildImageFormData, uploadCompletionImage, IMAGE_REQUIRED_STATUSES } = require('../helpers/api');
 const {
   ADMIN_CREDS,
   TECH_CREDS,
@@ -164,6 +164,12 @@ describe('TC-04 Order Creation', () => {
     test.each(remainingStatuses.map((s, i) => [s, i]))(
       'Transition to %s',
       async (newStatus) => {
+        // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the
+        // order before the status PUT is accepted (RH: status-change-required-images).
+        if (IMAGE_REQUIRED_STATUSES.includes(newStatus)) {
+          await uploadCompletionImage(techToken, orderId);
+        }
+
         const { status, body } = await api.put(`/orders/${orderId}/status`, {
           token: techToken,
           body: { status: newStatus, notes: `Chuyển sang ${newStatus}` },

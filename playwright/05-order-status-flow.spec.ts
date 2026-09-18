@@ -16,6 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { IMAGE_REQUIRED_STATUSES, uploadCompletionImage, COMPLETION_IMAGE_FIXTURE } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -95,6 +96,11 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
+  // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the order
+  // before the status PUT is accepted (RH: status-change-required-images).
+  if (IMAGE_REQUIRED_STATUSES.includes(status)) {
+    await uploadCompletionImage(request, token, orderId);
+  }
   await request.put(`${API_BASE}/orders/${orderId}/status`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { status, notes: `E2E advance to ${status}` },
@@ -228,6 +234,12 @@ test.describe('TC-02: Flow 2 — TRA_HANG path from BAO_GIA (RH-30 AC-2)', () =>
 
     // Select TRA_HANG — label is "Trả hàng"
     await page.locator('select').selectOption({ label: 'Trả hàng' });
+
+    // TRA_HANG requires a fresh COMPLETION image — attach one via the file
+    // input (RH: status-change-required-images) before Save is enabled.
+    await page.locator('input[type="file"]').setInputFiles(COMPLETION_IMAGE_FIXTURE);
+    await expect(page.getByText(/Đã chọn 1 ảnh/)).toBeVisible({ timeout: 5_000 });
+
     await page.getByRole('button', { name: /Lưu thay đổi/i }).click();
     await expect(page.getByText('Cập nhật thành công')).toBeVisible({ timeout: 10_000 });
     await expect(badge).toContainText('Trả hàng', { timeout: 10_000 });

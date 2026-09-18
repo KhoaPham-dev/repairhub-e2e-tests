@@ -85,4 +85,39 @@ function buildImageFormData(imageType = 'INTAKE') {
   return form;
 }
 
-module.exports = { api, login, createDummyImageBuffer, buildImageFormData, BASE_URL };
+/**
+ * Statuses that require a fresh COMPLETION photo (uploaded after the order's
+ * most recent status change) before the transition is accepted. Mirrors
+ * IMAGE_REQUIRED_STATUSES in the backend's PUT /orders/:id/status handler.
+ */
+const IMAGE_REQUIRED_STATUSES = ['DA_GIAO', 'TRA_HANG'];
+
+/**
+ * Upload a COMPLETION image to an order so a subsequent DA_GIAO / TRA_HANG
+ * status transition satisfies the fresh-image requirement. Throws if the
+ * upload itself fails, so callers get a clear error instead of a confusing
+ * downstream 400 on the status PUT.
+ */
+async function uploadCompletionImage(token, orderId) {
+  const form = buildImageFormData('COMPLETION');
+  const { status, body } = await api.post(`/orders/${orderId}/images`, {
+    token,
+    formData: form,
+  });
+  if (status !== 201) {
+    throw new Error(
+      `Failed to upload completion image for order ${orderId}: ${status} ${JSON.stringify(body)}`
+    );
+  }
+  return body;
+}
+
+module.exports = {
+  api,
+  login,
+  createDummyImageBuffer,
+  buildImageFormData,
+  uploadCompletionImage,
+  IMAGE_REQUIRED_STATUSES,
+  BASE_URL,
+};

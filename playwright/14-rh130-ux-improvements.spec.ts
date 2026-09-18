@@ -27,6 +27,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginViaUI, ADMIN_USER, ADMIN_PASSWORD } from './helpers/auth';
+import { IMAGE_REQUIRED_STATUSES, uploadCompletionImage } from './helpers/images';
 
 const API_BASE = process.env.API_URL ?? 'http://localhost:6061/api';
 
@@ -364,6 +365,11 @@ test.describe('RH-134: Lịch sử đơn gốc on warranty order detail page', (
       'DANG_SUA_CHUA', 'KIEM_TRA_LAI', 'SUA_XONG', 'DA_GIAO',
     ];
     for (const status of statuses) {
+      // DA_GIAO / TRA_HANG require a fresh COMPLETION image already on the
+      // order before the status PUT is accepted (RH: status-change-required-images).
+      if (IMAGE_REQUIRED_STATUSES.includes(status)) {
+        await uploadCompletionImage(request, token, orderId);
+      }
       await request.put(`${API_BASE}/orders/${orderId}/status`, {
         headers: { Authorization: `Bearer ${token}` },
         data: { status, notes: `Advance RH134 to ${status}` },
