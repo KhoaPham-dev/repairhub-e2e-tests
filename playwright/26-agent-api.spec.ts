@@ -700,7 +700,7 @@ test.describe('PW-26 Agent API', () => {
       await cleanup(staffToken, request, customerId);
     });
 
-    test('failed-auth rate limit: bad-key requests are rejected with 429 once exceeded; good-key requests are governed by the separate, much higher global limit', async ({ request }) => {
+    test('failed-auth rate limit: bad-key requests are rejected with 429 once exceeded; good-key requests are never gated by it, even after it has tripped', async ({ request }) => {
       const port = process.env.E2E_AGENT_AUTH_FAIL_LIMIT_PORT;
       if (!port) {
         test.skip(true, 'E2E_AGENT_AUTH_FAIL_LIMIT_PORT not set — no low-auth-fail-limit backend instance running for this check');
@@ -709,19 +709,13 @@ test.describe('PW-26 Agent API', () => {
       const maxAttempts = Number(process.env.E2E_AGENT_AUTH_FAIL_LIMIT_MAX ?? 3);
       const base = `http://localhost:${port}/api/agent`;
 
-      // Good-key traffic FIRST, more than maxAttempts worth of requests, all
+      // Good-key traffic, more than maxAttempts worth of requests, all
       // succeeding — proves it isn't bottlenecked by the low auth-fail
       // budget, only by the separate (much higher, default 120/min) global
-      // limiter. This has to run before deliberately tripping the auth-fail
-      // limiter below: express-rate-limit's skipSuccessfulRequests still
-      // increments the SAME per-IP counter for every request up front
-      // (only decrementing afterward for ones that turn out successful) —
-      // so once that counter is pegged at the limit, literally the very
-      // next request on this IP (good key or not) is rejected by the
-      // limiter itself before it even reaches auth, regardless of what its
-      // own outcome would have been. That's correct, intentional behavior
-      // (a temporary full block from an IP that just brute-forced the key),
-      // not something a single subsequent "good" request can route around.
+      // limiter. Backend 059f5a3: authenticateAgent invokes the failed-auth
+      // limiter only from its invalid-key branch, so a correct-key request
+      // never consults it at all (order no longer matters for this reason —
+      // kept first here only to also exercise the global limiter path).
       for (let i = 0; i < maxAttempts + 2; i++) {
         const res = await request.get(`${base}/orders`, { headers: agentHeaders() });
         expect(res.status(), `good-key attempt ${i}`).toBe(200);
@@ -738,6 +732,17 @@ test.describe('PW-26 Agent API', () => {
         }
       }
       expect(sawRateLimit, `expected 429 within ${maxAttempts + 3} bad-key attempts (limit configured to ${maxAttempts})`).toBe(true);
+
+      // This IP's failed-auth budget is now exhausted. Because the limiter
+      // (backend 059f5a3) is only ever invoked from the invalid-key branch,
+      // a correct-key request from the same client must still succeed here,
+      // while another wrong key continues to be rejected for the rest of
+      // the window.
+      const goodAfterTrip = await request.get(`${base}/orders`, { headers: agentHeaders() });
+      expect(goodAfterTrip.status(), 'a correct-key request must never be blocked by the failed-auth limiter, even after it has tripped').toBe(200);
+
+      const badAfterTrip = await request.get(`${base}/orders`, { headers: agentHeaders('not-the-real-key') });
+      expect(badAfterTrip.status(), 'a wrong key must still be rejected once the failed-auth limit is tripped').toBe(429);
     });
 
     test('request logging: a request produces one [agent-api] line, and the key never appears in stdout', async ({ request }) => {
