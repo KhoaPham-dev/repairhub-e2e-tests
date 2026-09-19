@@ -14,7 +14,7 @@
  *     .webm), never the client filename. Files are served from /uploads
  *     with Range support (206 Partial Content), and always carry
  *     X-Content-Type-Options: nosniff.
- *   - A COMPLETION video satisfies the DA_GIAO/HUY_TRA_MAY evidence rule
+ *   - A COMPLETION video satisfies the SUA_XONG/HUY_TRA_MAY evidence rule
  *     the same as a photo; the photo-guidance message now mentions video.
  *   - Declared mimetype is verified against the file's magic bytes. A
  *     mismatch → 400 "Nội dung tệp không khớp định dạng", every file from
@@ -41,7 +41,7 @@
  *            count unchanged
  *     TC-10: mixed request (valid video + oversized image) → 400, no
  *            order_images rows and no new files
- *     TC-11: COMPLETION video + notes → DA_GIAO transition succeeds (200)
+ *     TC-11: COMPLETION video + notes → SUA_XONG transition succeeds (200)
  *     TC-12: HTML declared as video/mp4 → 400 content-mismatch
  *     TC-13: warranty-claim with an oversized/mismatched file → 400, no
  *            new BAO_HANH order created for the source
@@ -128,8 +128,8 @@ const CONTENT_MISMATCH_MSG = 'Nội dung tệp không khớp định dạng';
 const TOO_MANY_FILES_MSG = 'Quá nhiều tệp trong một lần tải lên';
 const TOO_MANY_FILES_MSG_UI = 'Quá nhiều tệp trong một lần tải lên (tối đa 20)';
 const IMAGES_MAX_FILES = 20;
-const NOTES_MSG = 'Vui lòng nhập ghi chú khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
-const PHOTO_OR_VIDEO_MSG = 'Vui lòng tải ảnh hoặc video khi chuyển sang trạng thái Đã giao / Huỷ trả máy';
+const NOTES_MSG = 'Vui lòng nhập ghi chú khi chuyển sang trạng thái Sửa xong / Huỷ trả máy';
+const PHOTO_OR_VIDEO_MSG = 'Vui lòng tải ảnh hoặc video khi chuyển sang trạng thái Sửa xong / Huỷ trả máy';
 
 async function apiLogin(request: import('@playwright/test').APIRequestContext): Promise<string> {
   const res = await request.post(`${API_BASE}/auth/login`, {
@@ -436,7 +436,7 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
     await cleanup(token, request, customerId);
   });
 
-  test('TC-11: a COMPLETION video plus notes lets the order move to DA_GIAO (200)', async ({ request }) => {
+  test('TC-11: a COMPLETION video plus notes lets the order move to SUA_XONG (200)', async ({ request }) => {
     const { orderId, customerId } = await seedOrder(token, request);
 
     const upload = await uploadToOrder(request, token, orderId, { name: 'completion.mp4', mimeType: 'video/mp4', buffer: MP4_BUFFER }, 'COMPLETION');
@@ -444,12 +444,12 @@ test.describe('PW-23 API — video uploads on all three media endpoints', () => 
 
     const res = await request.put(`${API_BASE}/orders/${orderId}/status`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { status: 'DA_GIAO', notes: 'Đã giao kèm video xác nhận' },
+      data: { status: 'SUA_XONG', notes: 'Sửa xong, xác nhận kèm video' },
     });
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.data.status).toBe('DA_GIAO');
+    expect(body.data.status).toBe('SUA_XONG');
 
     await cleanup(token, request, customerId);
   });
@@ -640,14 +640,14 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
 
-    await page.locator('select').selectOption({ label: 'Đã giao' });
+    await page.locator('select').selectOption({ label: 'Sửa xong' });
     await expect(page.getByText('Bắt buộc tải lên ít nhất 1 ảnh hoặc video và nhập ghi chú khi chuyển sang trạng thái này')).toBeVisible({ timeout: 5_000 });
 
     const saveButton = page.getByRole('button', { name: /Lưu thay đổi/i });
     await expect(saveButton).toBeDisabled();
 
     // Notes alone: still disabled.
-    await page.getByPlaceholder('Thêm ghi chú...').fill('Đã giao kèm video');
+    await page.getByPlaceholder('Thêm ghi chú...').fill('Sửa xong kèm video');
     await expect(saveButton).toBeDisabled();
 
     // Notes + video: enabled, and saving succeeds.
@@ -657,7 +657,7 @@ test.describe('PW-23 UI — video uploads on the order detail page', () => {
     await saveButton.click();
 
     const badge = page.getByTestId('order-status-badge');
-    await expect(badge).toContainText('Đã giao', { timeout: 10_000 });
+    await expect(badge).toContainText('Sửa xong', { timeout: 10_000 });
 
     await cleanup(token, request, customerId);
   });

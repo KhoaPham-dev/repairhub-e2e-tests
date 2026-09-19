@@ -129,7 +129,7 @@ async function advanceStatus(
   orderId: string,
   status: string,
 ): Promise<void> {
-  // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image + notes before
+  // SUA_XONG / HUY_TRA_MAY require a fresh COMPLETION image + notes before
   // the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may) —
   // transitionStatus() handles both; see playwright/helpers/images.ts.
   await transitionStatus(request, token, orderId, status, { notes: `E2E advance to ${status}` });

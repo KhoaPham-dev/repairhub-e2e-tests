@@ -364,7 +364,7 @@ test.describe('RH-134: Lịch sử đơn gốc on warranty order detail page', (
     // Matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31.
     const statuses = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
     for (const status of statuses) {
-      // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image + notes before
+      // SUA_XONG / HUY_TRA_MAY require a fresh COMPLETION image + notes before
       // the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may) —
       // transitionStatus() handles both; see playwright/helpers/images.ts.
       await transitionStatus(request, token, orderId, status, { notes: `Advance RH134 to ${status}` });

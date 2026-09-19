@@ -98,13 +98,14 @@ function buildImageFormData(imageType = 'INTAKE') {
  * Statuses that require both non-blank notes and a fresh COMPLETION photo
  * (uploaded after the order's most recent REAL status transition) before
  * the transition is accepted. Mirrors EVIDENCE_REQUIRED_STATUSES in the
- * backend's PUT /orders/:id/status handler. TRA_HANG no longer requires
- * either — only DA_GIAO and HUY_TRA_MAY do.
+ * backend's PUT /orders/:id/status handler. DA_GIAO requires nothing (even
+ * if SUA_XONG was skipped) and TRA_HANG requires nothing either — only
+ * SUA_XONG and HUY_TRA_MAY do.
  */
-const EVIDENCE_REQUIRED_STATUSES = ['DA_GIAO', 'HUY_TRA_MAY'];
+const EVIDENCE_REQUIRED_STATUSES = ['SUA_XONG', 'HUY_TRA_MAY'];
 
 /**
- * Upload a COMPLETION image to an order so a subsequent DA_GIAO / HUY_TRA_MAY
+ * Upload a COMPLETION image to an order so a subsequent SUA_XONG / HUY_TRA_MAY
  * status transition satisfies the fresh-image requirement. Throws if the
  * upload itself fails, so callers get a clear error instead of a confusing
  * downstream 400 on the status PUT.
@@ -126,15 +127,19 @@ async function uploadCompletionImage(token, orderId) {
 /**
  * Transition an order to `status`, automatically satisfying the evidence
  * requirement (non-blank notes + fresh COMPLETION photo) when `status` is
- * DA_GIAO or HUY_TRA_MAY. Use this instead of a bare `api.put(.../status)`
- * call when a test doesn't need to exercise the evidence rule itself.
+ * SUA_XONG or HUY_TRA_MAY. DA_GIAO requires nothing, so no notes are sent
+ * for it unless the caller explicitly passes some. Use this instead of a
+ * bare `api.put(.../status)` call when a test doesn't need to exercise the
+ * evidence rule itself.
  */
 async function transitionStatus(token, orderId, status, opts = {}) {
-  const notes = opts.notes ?? `E2E transition to ${status}`;
-  if (EVIDENCE_REQUIRED_STATUSES.includes(status)) {
+  const evidenceRequired = EVIDENCE_REQUIRED_STATUSES.includes(status);
+  const notes = opts.notes ?? (evidenceRequired ? `E2E transition to ${status}` : undefined);
+  if (evidenceRequired) {
     await uploadCompletionImage(token, orderId);
   }
-  return api.put(`/orders/${orderId}/status`, { token, body: { status, notes } });
+  const body = notes !== undefined ? { status, notes } : { status };
+  return api.put(`/orders/${orderId}/status`, { token, body });
 }
 
 module.exports = {

@@ -166,7 +166,7 @@ describe('TC-04 Order Creation', () => {
     test.each(remainingStatuses.map((s, i) => [s, i]))(
       'Transition to %s',
       async (newStatus) => {
-        // DA_GIAO / HUY_TRA_MAY require a fresh COMPLETION image already on
+        // SUA_XONG / HUY_TRA_MAY require a fresh COMPLETION image already on
         // the order before the status PUT is accepted (RH: status-rules-da-giao-huy-tra-may).
         if (EVIDENCE_REQUIRED_STATUSES.includes(newStatus)) {
           await uploadCompletionImage(techToken, orderId);

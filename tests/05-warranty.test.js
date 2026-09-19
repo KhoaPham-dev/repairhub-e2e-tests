@@ -72,7 +72,7 @@ beforeAll(async () => {
   // (matches the backend's STATUS_FLOW — CHO_LINH_KIEN/KIEM_TRA_LAI were removed in RH-31)
   const steps = ['DANG_KIEM_TRA', 'BAO_GIA', 'DANG_SUA_CHUA', 'SUA_XONG', 'DA_GIAO'];
   for (const step of steps) {
-    // DA_GIAO / HUY_TRA_MAY require non-blank notes and a fresh COMPLETION
+    // SUA_XONG / HUY_TRA_MAY require non-blank notes and a fresh COMPLETION
     // image already on the order before the status PUT is accepted
     // (RH: status-rules-da-giao-huy-tra-may) — transitionStatus() handles both.
     await transitionStatus(techToken, deliveredOrderId, step);
